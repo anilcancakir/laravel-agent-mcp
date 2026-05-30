@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\AgentMcpServiceProvider;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;

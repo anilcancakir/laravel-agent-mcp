@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 // Config defaults are loaded by TestCase::defineEnvironment() from config/agent-mcp.php.
 // Tests here assert that the resolved defaults match the package's contract; they do not
 // manually reload the file — the harness already does that at boot.

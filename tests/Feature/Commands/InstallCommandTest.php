@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use function Pest\Laravel\artisan;
 
 // agent-mcp:install publishes config + assets and prints four guidance sections:

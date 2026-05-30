@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;

@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Auditing\AuditLogger;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;

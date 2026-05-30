@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentServer;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentTool;

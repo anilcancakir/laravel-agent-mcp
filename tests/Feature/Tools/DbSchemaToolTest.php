@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
 use Anilcancakir\LaravelAgentMcp\Tools\DbSchemaTool;
 use Illuminate\Database\Schema\Blueprint;

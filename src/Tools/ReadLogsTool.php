@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Anilcancakir\LaravelAgentMcp\Tools;
 
 use Anilcancakir\LaravelAgentMcp\Auditing\AuditLogger;

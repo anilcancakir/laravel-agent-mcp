@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;

@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Anilcancakir\LaravelAgentMcp\Server;
 
 use Anilcancakir\LaravelAgentMcp\Http\StripsErrorTraces;

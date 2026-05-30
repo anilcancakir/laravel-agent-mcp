@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Logs\LogFileResolver;
 use Anilcancakir\LaravelAgentMcp\Logs\LogPathException;
 

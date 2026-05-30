@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 
 describe('OutputRedactor', function (): void {
