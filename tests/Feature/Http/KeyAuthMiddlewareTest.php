@@ -3,15 +3,17 @@
 use Anilcancakir\LaravelAgentMcp\Http\Middleware\KeyAuthMiddleware;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Drives a request through the middleware and returns the resulting response.
  *
  * The $next closure stands in for the downstream pipeline: when the middleware
  * passes, it returns a 200 marker so the test can distinguish "passed" from
- * "rejected with 401".
+ * "rejected with 401". The return type is the Symfony base response because that
+ * is what KeyAuthMiddleware::handle() is typed to return.
  */
-function runKeyAuthMiddleware(Request $request): Response
+function runKeyAuthMiddleware(Request $request): HttpResponse
 {
     $middleware = new KeyAuthMiddleware;
 
