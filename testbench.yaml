@@ -1,0 +1,5 @@
+# The package provider is registered in tests/TestCase.php via getPackageProviders().
+# This file intentionally omits providers so phpstan/larastan can bootstrap the
+# testbench application during static analysis before the provider class exists
+# (it is created in Step 14). Update this file in Step 14 once the class is available.
+providers: []
