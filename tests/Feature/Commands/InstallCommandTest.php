@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\File;
+
 use function Pest\Laravel\artisan;
 
 // agent-mcp:install publishes config + assets and prints key-auth guidance:
@@ -77,9 +79,11 @@ it('does not reference Sanctum or createToken', function (): void {
 
     // Confirm legacy Sanctum terms are absent by grepping the command source: the
     // command must carry no createToken/Sanctum/abilities language under key auth.
-    expect(file_get_contents(__DIR__.'/../../../src/Commands/InstallCommand.php'))
-        ->not->toContain('createToken')
-        ->not->toContain('sanctum')
-        ->not->toContain('Sanctum')
-        ->not->toContain('abilities');
+    // Separate expectations (not a chain) keep each subject typed as a string.
+    $source = File::get(__DIR__.'/../../../src/Commands/InstallCommand.php');
+
+    expect($source)->not->toContain('createToken');
+    expect($source)->not->toContain('sanctum');
+    expect($source)->not->toContain('Sanctum');
+    expect($source)->not->toContain('abilities');
 });
