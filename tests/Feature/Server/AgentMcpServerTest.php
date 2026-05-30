@@ -2,11 +2,31 @@
 
 use Anilcancakir\LaravelAgentMcp\AgentMcpServiceProvider;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
+use Anilcancakir\LaravelAgentMcp\Tools\AppAboutTool;
+use Anilcancakir\LaravelAgentMcp\Tools\CacheInspectTool;
+use Anilcancakir\LaravelAgentMcp\Tools\CacheKeysTool;
+use Anilcancakir\LaravelAgentMcp\Tools\CacheStatusTool;
+use Anilcancakir\LaravelAgentMcp\Tools\ConfigInspectTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbActiveLocksTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbIndexHealthTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbMissingFkIndexesTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbQueryTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbSchemaTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbSlowQueriesTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbTableSizesTool;
+use Anilcancakir\LaravelAgentMcp\Tools\EnvKeysTool;
+use Anilcancakir\LaravelAgentMcp\Tools\EventListTool;
+use Anilcancakir\LaravelAgentMcp\Tools\HorizonStatusTool;
+use Anilcancakir\LaravelAgentMcp\Tools\InspectRouteTool;
+use Anilcancakir\LaravelAgentMcp\Tools\ListRoutesTool;
+use Anilcancakir\LaravelAgentMcp\Tools\MigrationsStatusTool;
+use Anilcancakir\LaravelAgentMcp\Tools\QueueBacklogTool;
+use Anilcancakir\LaravelAgentMcp\Tools\QueueFailedJobsTool;
 use Anilcancakir\LaravelAgentMcp\Tools\ReadLogsTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
+use Anilcancakir\LaravelAgentMcp\Tools\ScheduleListTool;
+use Anilcancakir\LaravelAgentMcp\Tools\StorageInfoTool;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Mcp\Server\Transport\FakeTransporter;
 use Spatie\LaravelPackageTools\Package;
@@ -36,7 +56,7 @@ function toolsListPayload(): array
     ];
 }
 
-it('declares the five package tools on the server', function (): void {
+it('declares all package tools on the server', function (): void {
     $tools = (function (): array {
         return $this->tools;
     })->call(new AgentMcpServer(new FakeTransporter));
@@ -47,7 +67,43 @@ it('declares the five package tools on the server', function (): void {
         DbRawSelectTool::class,
         ReadLogsTool::class,
         RunArtisanTool::class,
+        QueueBacklogTool::class,
+        QueueFailedJobsTool::class,
+        HorizonStatusTool::class,
+        DbIndexHealthTool::class,
+        DbMissingFkIndexesTool::class,
+        DbTableSizesTool::class,
+        DbSlowQueriesTool::class,
+        DbActiveLocksTool::class,
+        MigrationsStatusTool::class,
+        CacheStatusTool::class,
+        CacheInspectTool::class,
+        CacheKeysTool::class,
+        ListRoutesTool::class,
+        InspectRouteTool::class,
+        AppAboutTool::class,
+        ScheduleListTool::class,
+        EventListTool::class,
+        ConfigInspectTool::class,
+        EnvKeysTool::class,
+        StorageInfoTool::class,
     ]);
+});
+
+it('hides a default-OFF tool via shouldRegister when its config flag is false', function (): void {
+    config()->set('agent-mcp.tools.config_inspect', false);
+
+    $tool = app(ConfigInspectTool::class);
+
+    expect($tool->shouldRegister())->toBeFalse();
+});
+
+it('shows a default-ON tool via shouldRegister when its config flag is true', function (): void {
+    config()->set('agent-mcp.tools.list_routes', true);
+
+    $tool = app(ListRoutesTool::class);
+
+    expect($tool->shouldRegister())->toBeTrue();
 });
 
 it('registers a default audit channel when the operator has not defined one', function (): void {
