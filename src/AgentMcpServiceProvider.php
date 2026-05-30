@@ -29,16 +29,8 @@ class AgentMcpServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('agent-mcp')
-            ->hasConfigFile();
-
-        // InstallCommand lands in Step 15. Register it only once it exists: a registered
-        // command class is instantiated when the console kernel boots (e.g. any
-        // Artisan::call), so referencing a not-yet-authored class would fatal. The guard
-        // is inert in production (the class always exists there) and mirrors the same
-        // forward-reference pattern TestCase::getPackageProviders() uses for this provider.
-        if (class_exists(InstallCommand::class)) {
-            $package->hasCommand(InstallCommand::class);
-        }
+            ->hasConfigFile()
+            ->hasCommand(InstallCommand::class);
     }
 
     public function packageRegistered(): void
