@@ -6,7 +6,3 @@ parameters:
     paths:
         - src
         - tests
-    bootstrapFiles:
-        # Provides the AgentMcpServiceProvider class declaration for static analysis.
-        # The real implementation is created in Step 14; remove this entry then.
-        - tests/Stubs/AgentMcpServiceProvider.stub.php
