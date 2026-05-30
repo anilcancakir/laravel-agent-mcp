@@ -34,7 +34,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: dom, curl, libxml, mbstring, zip, pdo, sqlite3, pdo_sqlite
-          coverage: none
+          coverage: ${{ matrix.php == '8.4' && 'pcov' || 'none' }}
 
       - name: Install dependencies
         run: |
@@ -51,4 +51,4 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M
 
       - name: Run tests
-        run: vendor/bin/pest --no-coverage
+        run: ${{ matrix.php == '8.4' && 'vendor/bin/pest --coverage --min=80' || 'vendor/bin/pest' }}
