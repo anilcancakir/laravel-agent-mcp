@@ -1,0 +1,27 @@
+# Agent MCP Tools
+
+This project exposes a set of read-only MCP tools for AI agent use. Use them
+proactively to ground your answers in real data rather than assumptions. The
+tools are safe to call frequently; they have no write access to the database.
+
+## Tool Usage Table
+
+| Tool | When to use | Notes |
+|------|-------------|-------|
+| `db_schema` | **BEFORE writing any query**, call this to discover table names, column types, indexes, and foreign keys. Also call when you encounter an unknown table or column. | Read-only schema introspection. Call with no arguments for the full table list; pass a `table` argument for column-level detail. |
+| `db_query` | For structured reads where you know the table and filter conditions (find by id, filter by column, count rows). Use this for well-defined lookups. | Builds parameterized queries via the query builder. Safer than raw SQL for routine reads. |
+| `db_raw_select` | For ad-hoc or complex SELECT queries: JOINs across multiple tables, subqueries, aggregations, window functions. Always write a valid SELECT statement. | Accepts any valid SELECT. The package enforces a SELECT-only grammar guard and auto-applies a row limit. |
+| `read_logs` | **On any 500, exception, failed job, or unexpected behavior, call this IMMEDIATELY** before attempting a fix. Log context is often the fastest path to the root cause. | Returns recent lines from the application log channel. Control volume with `lines`, and narrow by `level` (error, warning, info, debug). |
+| `run_artisan` | Only when the operator has explicitly enabled this tool and configured an allowlist of permitted commands. Do NOT assume it is available; check first. | Disabled by default. Runs only exact commands from the operator-configured allowlist. No wildcard or arbitrary commands accepted. |
+
+## Proactive Use
+
+- Call `db_schema` at the start of any session that involves database work, not just
+  when you hit an error. Knowing the schema up front prevents incorrect queries.
+- Call `read_logs` proactively when a user reports unexpected behavior, even if they
+  have not seen a 500 explicitly. Warnings and deprecations in the logs often
+  explain subtle breakage.
+- Prefer `db_query` over `db_raw_select` for simple lookups; use `db_raw_select`
+  only when the query builder cannot express the logic.
+- Do NOT attempt to infer schema from model code or migration files alone; the live
+  database may differ. Always confirm with `db_schema`.

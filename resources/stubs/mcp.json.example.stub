@@ -1,0 +1,32 @@
+{
+    "mcpServers": {
+        // HTTP transport (Streamable HTTP, recommended for remote/production use).
+        //
+        // Note for Claude Desktop users: Claude Desktop does not natively support
+        // sending custom HTTP headers. Use the `mcp-remote` shim to forward the
+        // Authorization header. See: https://github.com/geelen/mcp-remote
+        //
+        // The ${AGENT_MCP_TOKEN} placeholder is expanded from your environment.
+        // Set AGENT_MCP_TOKEN in your shell profile or .env.local before starting
+        // the client.
+        "agent-mcp-http": {
+            "type": "http",
+            "url": "https://your-app.test/mcp",
+            "headers": {
+                "Authorization": "Bearer ${AGENT_MCP_TOKEN}"
+            }
+        },
+
+        // stdio transport (local artisan process, no network hop).
+        //
+        // Use this when the client runs on the same machine as the Laravel app.
+        // The artisan process is spawned once per session; no HTTP server required.
+        // Ensure the working directory is your Laravel project root, or use an
+        // absolute path to the artisan binary.
+        "agent-mcp-stdio": {
+            "type": "stdio",
+            "command": "php",
+            "args": ["artisan", "mcp:start", "agent-mcp"]
+        }
+    }
+}
