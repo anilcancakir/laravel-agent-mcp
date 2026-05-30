@@ -46,7 +46,7 @@ jobs:
         run: vendor/bin/pint --test
 
       - name: Static analysis
-        run: vendor/bin/phpstan analyse --no-progress
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M
 
       - name: Run tests
         run: vendor/bin/pest --no-coverage
