@@ -8,9 +8,9 @@ use Laravel\Mcp\Server\Tool;
 /**
  * Self-contained MCP server for the AbstractAgentTool tests.
  *
- * It exists only so the laravel/mcp testing API (Server::actingAs(...)->tool(...))
- * can drive the stub tools through the real CallTool pipeline. It deliberately does
- * NOT reference AgentMcpServer (Step 14): Step 8 must be testable in isolation.
+ * It exists only so the laravel/mcp testing API (Server::tool(...)) can drive the
+ * stub tools through the real CallTool pipeline. It deliberately does NOT reference
+ * AgentMcpServer so the base-tool behavior is testable in isolation.
  */
 class StubAgentServer extends Server
 {

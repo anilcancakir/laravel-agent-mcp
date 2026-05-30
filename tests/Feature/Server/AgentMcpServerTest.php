@@ -2,7 +2,6 @@
 
 use Anilcancakir\LaravelAgentMcp\AgentMcpServiceProvider;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
-use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
 use Anilcancakir\LaravelAgentMcp\Tools\DbQueryTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbSchemaTool;
@@ -10,31 +9,17 @@ use Anilcancakir\LaravelAgentMcp\Tools\ReadLogsTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Mcp\Server\Transport\FakeTransporter;
-use Laravel\Sanctum\Sanctum;
-use Laravel\Sanctum\SanctumServiceProvider;
 use Spatie\LaravelPackageTools\Package;
 
 use function Pest\Laravel\postJson;
+use function Pest\Laravel\withHeaders;
 
-beforeEach(function (): void {
-    // The isolated testbench app does not auto-discover dev dependencies, so the
-    // sanctum guard the package's default middleware (auth:sanctum) relies on is not
-    // wired. Register the provider and define the guard so the route's auth gate is
-    // exercised exactly as it would be in a host app that has sanctum installed.
-    app()->register(SanctumServiceProvider::class);
-
-    config()->set('auth.guards.sanctum', [
-        'driver' => 'sanctum',
-        'provider' => 'users',
-    ]);
-});
-
-// Step 14 wires the package together: the AgentMcpServer (tool list + name/version/
-// instructions), the AgentMcpServiceProvider (config-gated Mcp::web/Mcp::local
-// registration + throttle limiter), and StripsErrorTraces (no stack trace ever leaves
-// the MCP error path, even with app.debug=true). These tests prove the security-
-// relevant wiring: the route requires auth:sanctum, auto_register=false registers
-// nothing, and a thrown tool error never carries a trace over HTTP.
+// These tests prove the security-relevant wiring of the assembled package: the
+// /agent-mcp route is fail-closed behind KeyAuthMiddleware (401 with no key, 401 with
+// the wrong key, 200 with the correct Bearer key), auto_register=false registers
+// nothing, and a thrown tool error never carries a stack trace over HTTP even with
+// app.debug=true (StripsErrorTraces). Authentication is a single server-admin key:
+// there is no user, no Sanctum, no per-caller ability.
 
 /**
  * Build a JSON-RPC tools/list payload.
@@ -73,24 +58,43 @@ it('registers a default audit channel when the operator has not defined one', fu
     expect(config('logging.channels.agent-mcp-audit.driver'))->toBe('single');
 });
 
-it('rejects an unauthenticated request to the MCP route with 401', function (): void {
+it('rejects a request with no key to the MCP route with 401 (fail closed)', function (): void {
     config()->set('agent-mcp.enabled', true);
     config()->set('agent-mcp.auto_register', true);
+    config()->set('agent-mcp.key', 'the-server-admin-key');
 
-    postJson('/mcp', toolsListPayload())
+    postJson('/agent-mcp', toolsListPayload())
         ->assertStatus(401);
 });
 
-it('lists the enabled tools for an authenticated read-ability token', function (): void {
+it('rejects a request with the wrong key with 401', function (): void {
     config()->set('agent-mcp.enabled', true);
     config()->set('agent-mcp.auto_register', true);
+    config()->set('agent-mcp.key', 'the-server-admin-key');
 
-    Sanctum::actingAs(
-        new StubTokenUser(id: 1, abilities: ['agent-mcp:read']),
-        ['agent-mcp:read'],
-    );
+    withHeaders(['Authorization' => 'Bearer wrong-key'])
+        ->postJson('/agent-mcp', toolsListPayload())
+        ->assertStatus(401);
+});
 
-    $response = postJson('/mcp', toolsListPayload())->assertOk();
+it('is fail-closed when the key is unset even with a Bearer header', function (): void {
+    config()->set('agent-mcp.enabled', true);
+    config()->set('agent-mcp.auto_register', true);
+    config()->set('agent-mcp.key', null);
+
+    withHeaders(['Authorization' => 'Bearer anything'])
+        ->postJson('/agent-mcp', toolsListPayload())
+        ->assertStatus(401);
+});
+
+it('lists the enabled tools for a request carrying the correct Bearer key', function (): void {
+    config()->set('agent-mcp.enabled', true);
+    config()->set('agent-mcp.auto_register', true);
+    config()->set('agent-mcp.key', 'the-server-admin-key');
+
+    $response = withHeaders(['Authorization' => 'Bearer the-server-admin-key'])
+        ->postJson('/agent-mcp', toolsListPayload())
+        ->assertOk();
 
     /** @var array<int, array<string, mixed>> $tools */
     $tools = $response->json('result.tools');
@@ -119,12 +123,8 @@ it('registers no MCP route when auto_register is false', function (): void {
 it('never leaks a stack trace in an MCP error response even with app.debug true', function (): void {
     config()->set('agent-mcp.enabled', true);
     config()->set('agent-mcp.auto_register', true);
+    config()->set('agent-mcp.key', 'the-server-admin-key');
     config()->set('app.debug', true);
-
-    Sanctum::actingAs(
-        new StubTokenUser(id: 1, abilities: ['agent-mcp:read']),
-        ['agent-mcp:read'],
-    );
 
     // Force a non-Auth, non-Validation Throwable from inside a tool's handle(): it
     // bubbles past CallTool into Server::handle(), whose stock behavior re-throws the
@@ -140,7 +140,8 @@ it('never leaks a stack trace in an MCP error response even with app.debug true'
         ],
     ];
 
-    $response = postJson('/mcp', $payload);
+    $response = withHeaders(['Authorization' => 'Bearer the-server-admin-key'])
+        ->postJson('/agent-mcp', $payload);
 
     $body = $response->getContent();
 

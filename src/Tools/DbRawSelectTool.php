@@ -18,7 +18,8 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
  *
  * This is the highest-risk tool in the package (it accepts raw SQL), so it composes
  * every defense layer rather than trusting any single one:
- *   1. authorize()  - Sanctum read ability + tool-enabled gate (AbstractAgentTool).
+ *   1. authorize()  - tool-enabled gate (AbstractAgentTool); the server-admin key
+ *      was already verified by the HTTP middleware before the tool ran.
  *   2. SelectStatementValidator::validate() - allowlist grammar; rejects anything
  *      that is not a single read-only SELECT BEFORE a query ever runs (Oracle CRIT2).
  *   3. auto-LIMIT - an unbounded SELECT is capped at config('agent-mcp.query.max_rows')
@@ -52,14 +53,6 @@ class DbRawSelectTool extends AbstractAgentTool
         protected readonly SelectStatementValidator $validator,
     ) {
         parent::__construct($connectionResolver, $outputRedactor, $auditLogger);
-    }
-
-    /**
-     * Reading the database requires the 'read' ability.
-     */
-    protected function requiredAbility(): string
-    {
-        return 'read';
     }
 
     /**

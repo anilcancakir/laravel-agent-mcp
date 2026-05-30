@@ -2,9 +2,7 @@
 
 namespace Anilcancakir\LaravelAgentMcp;
 
-use Anilcancakir\LaravelAgentMcp\Authorization\SanctumTokenAuthorizer;
 use Anilcancakir\LaravelAgentMcp\Commands\InstallCommand;
-use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -41,15 +39,6 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         // app that has not discovered it yet) can resolve Mcp::web()/Mcp::local() and
         // the injected Laravel\Mcp\Request. register() is idempotent.
         $this->app->register(McpServiceProvider::class);
-
-        // Bind the pluggable ability authorizer from config (default: the Sanctum
-        // token authorizer). A host without Sanctum points config('agent-mcp.authorizer')
-        // at its own implementation, so the tools carry no hard auth-package dependency.
-        $this->app->bind(AuthorizesAgentTools::class, function ($app): AuthorizesAgentTools {
-            $class = config('agent-mcp.authorizer', SanctumTokenAuthorizer::class);
-
-            return $app->make($class);
-        });
     }
 
     public function packageBooted(): void
@@ -108,24 +97,45 @@ class AgentMcpServiceProvider extends PackageServiceProvider
 
     /**
      * Define the throttle:agent-mcp rate limiter referenced by the default route
-     * middleware. Keyed by the authenticated user when present, falling back to the
-     * client IP for the (middleware-rejected) unauthenticated case.
+     * middleware. Keyed by a sha1 FINGERPRINT of the presented key, not the client
+     * IP (Oracle IMP1): behind the stdio bridge or a proxy every caller collapses to
+     * one IP, so an IP bucket would be useless. The raw key is never used as the
+     * bucket key, only its sha1 fingerprint. Requests with no presented key fall into
+     * a shared 'unauthenticated' bucket (the middleware rejects them anyway). Mirrors
+     * KeyAuthMiddleware's key extraction so the bucket tracks the same credential the
+     * auth layer checks.
      */
     private function registerRateLimiter(): void
     {
         RateLimiter::for('agent-mcp', function (Request $request): Limit {
-            $user = $request->user();
+            $presented = $this->presentedKey($request);
 
-            return $user !== null
-                ? Limit::perMinute(60)->by((string) $user->getAuthIdentifier())
-                : Limit::perMinute(60)->by((string) $request->ip());
+            return is_string($presented) && $presented !== ''
+                ? Limit::perMinute(60)->by(sha1($presented))
+                : Limit::perMinute(60)->by('unauthenticated');
         });
     }
 
     /**
+     * Read the presented key the same way KeyAuthMiddleware does: the Authorization
+     * header is parsed strictly via bearerToken(); any other configured header is read
+     * as its raw value. Returns null when nothing usable was presented.
+     */
+    private function presentedKey(Request $request): ?string
+    {
+        $header = config('agent-mcp.key_header', 'Authorization');
+
+        if (is_string($header) && strcasecmp($header, 'Authorization') === 0) {
+            return $request->bearerToken();
+        }
+
+        return is_string($header) ? $request->header($header) : null;
+    }
+
+    /**
      * Register the HTTP and stdio transports, each gated by its transport flag.
-     * HTTP carries the configured middleware (auth:sanctum + throttle) so the route
-     * is never reachable unauthenticated.
+     * HTTP carries the configured middleware (KeyAuthMiddleware + throttle) so the
+     * route is never reachable without the server-admin key.
      */
     private function registerTransports(): void
     {

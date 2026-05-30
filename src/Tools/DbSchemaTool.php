@@ -29,11 +29,6 @@ use Laravel\Mcp\Server\Attributes\Name;
 #[Name('db_schema')]
 class DbSchemaTool extends AbstractAgentTool
 {
-    protected function requiredAbility(): string
-    {
-        return 'read';
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -48,7 +43,7 @@ class DbSchemaTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative ability + tool-enabled gate.
+        // 1. Authoritative tool-enabled gate.
         if ($denial = $this->authorize()) {
             return $denial;
         }

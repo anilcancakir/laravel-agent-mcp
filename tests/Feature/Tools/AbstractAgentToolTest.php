@@ -1,34 +1,18 @@
 <?php
 
-use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentServer;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentTool;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubNoopRegisterTool;
-use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server\McpServiceProvider;
-use Laravel\Sanctum\TransientToken;
 
-/**
- * A first-party session principal: carries the ability via tokenCan() but whose
- * current access token is a TransientToken (Sanctum session auth), which can() would
- * grant for any ability. authorize() must reject it so session auth cannot bypass
- * ability scoping.
- */
-class SessionStubUser extends StubTokenUser
-{
-    public function currentAccessToken(): ?object
-    {
-        return new TransientToken;
-    }
-}
-
-// AbstractAgentTool is the authorization hub: the authoritative ability + tool-enabled
-// check lives in authorize() (called at the top of every subclass handle()), independent
-// of shouldRegister (best-effort UX only) and independent of any request-passed user
-// (it reads the route's auth guard). These tests prove the deny path fires in handle()
-// even when shouldRegister is a no-op, plus the audit/redaction pipeline wiring.
+// AbstractAgentTool is the tool-enabled hub: authentication is the HTTP layer's job
+// (KeyAuthMiddleware verifies the single server-admin key before the route is reached),
+// so the only access decision left at the tool is the per-tool enable flag. The
+// authoritative check lives in authorize() (called at the top of every subclass
+// handle()), independent of shouldRegister (best-effort UX only). These tests prove the
+// deny path fires in handle() when the tool is disabled even when shouldRegister is a
+// no-op, plus the audit/redaction pipeline wiring (audit records shape only, no identity).
 
 beforeEach(function (): void {
     // laravel/mcp's own provider registers the resolving(Request::class) callback that
@@ -39,35 +23,11 @@ beforeEach(function (): void {
 
     // The stub tools read these config keys via the base; set them explicitly so the
     // test is self-contained regardless of the published defaults.
-    config()->set('agent-mcp.abilities.read', 'agent-mcp:read');
     config()->set('agent-mcp.tools.stub-agent-tool', true);
     config()->set('agent-mcp.tools.stub-noop-register-tool', true);
 });
 
-it('denies in handle() when the token lacks the required ability (authoritative)', function (): void {
-    $user = new StubTokenUser(id: 1, abilities: []);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, [])
-        ->assertHasErrors();
-});
-
-it('denies in handle() even when shouldRegister is a no-op returning true', function (): void {
-    // StubNoopRegisterTool::shouldRegister() always returns true, so registration UX
-    // cannot be the boundary. handle() must still deny a token without the ability.
-    $user = new StubTokenUser(id: 1, abilities: []);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubNoopRegisterTool::class, [])
-        ->assertHasErrors();
-});
-
-it('denies in handle() when no user is authenticated on the guard', function (): void {
-    StubAgentServer::tool(StubAgentTool::class, [])
-        ->assertHasErrors();
-});
-
-it('handles successfully and records an audit entry when the token has the ability', function (): void {
+it('handles successfully and records an audit entry with shape only (no identity)', function (): void {
     $captured = null;
 
     Log::shouldReceive('channel')->with('agent-mcp-audit')->once()->andReturnSelf();
@@ -77,26 +37,31 @@ it('handles successfully and records an audit entry when the token has the abili
         return $message === 'mcp.tool_invoked';
     });
 
-    $user = new StubTokenUser(id: 42, abilities: ['agent-mcp:read']);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, ['needle' => 'value'])
+    StubAgentServer::tool(StubAgentTool::class, ['needle' => 'value'])
         ->assertOk()
         ->assertSee('handled');
 
     expect($captured)->not->toBeNull();
     expect($captured['tool'])->toBe('stub-agent-tool');
     expect($captured['arg_shape'])->toBe(['needle' => 'string']);
-    expect($captured['user_id'])->toBe(42);
+    // No per-caller identity is recorded under the single-key model.
+    expect($captured)->not->toHaveKey('user_id');
+    expect($captured)->not->toHaveKey('token_id');
 });
 
-it('denies in handle() when the tool is disabled in config even with a valid ability', function (): void {
+it('denies in handle() when the tool is disabled in config', function (): void {
     config()->set('agent-mcp.tools.stub-agent-tool', false);
 
-    $user = new StubTokenUser(id: 7, abilities: ['agent-mcp:read']);
+    StubAgentServer::tool(StubAgentTool::class, [])
+        ->assertHasErrors();
+});
 
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, [])
+it('denies in handle() even when shouldRegister is a no-op returning true', function (): void {
+    // StubNoopRegisterTool::shouldRegister() always returns true, so registration UX
+    // cannot be the boundary. handle() must still deny when the tool is disabled.
+    config()->set('agent-mcp.tools.stub-noop-register-tool', false);
+
+    StubAgentServer::tool(StubNoopRegisterTool::class, [])
         ->assertHasErrors();
 });
 
@@ -104,59 +69,12 @@ it('runs tool output through the redactor before returning', function (): void {
     config()->set('agent-mcp.audit.enabled', false);
     config()->set('agent-mcp.redaction.enabled', true);
 
-    $user = new StubTokenUser(id: 9, abilities: ['agent-mcp:read']);
-
     // The stub tool emits a string containing an email; the configured redactor must
     // replace it with the marker before the response leaves handle().
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, ['leak' => 'contact me at secret@example.com please'])
+    StubAgentServer::tool(StubAgentTool::class, ['leak' => 'contact me at secret@example.com please'])
         ->assertOk()
         ->assertSee('[REDACTED]')
         ->assertDontSee('secret@example.com');
-});
-
-it('denies in handle() when the required ability config resolves to empty (fail closed)', function (): void {
-    // A misconfigured/missing ability key must DENY, never resolve to '' which a
-    // wildcard ('*') token would be granted.
-    config()->set('agent-mcp.abilities.read', null);
-
-    $user = new StubTokenUser(id: 1, abilities: ['*', 'agent-mcp:read']);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, [])
-        ->assertHasErrors();
-});
-
-it('denies in handle() for a session (TransientToken) principal even with the ability', function (): void {
-    // Sanctum first-party session auth yields a TransientToken whose can() returns true
-    // for every ability. The agent must use a scoped personal access token; reject it.
-    $user = new SessionStubUser(id: 1, abilities: ['agent-mcp:read']);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, [])
-        ->assertHasErrors();
-});
-
-it('delegates the ability decision to a host-bound custom authorizer (auth-agnostic seam)', function (): void {
-    // A host without Sanctum binds its own authorizer. The tool must defer to it:
-    // a user the default Sanctum authorizer path would reject is allowed here because
-    // the custom authorizer grants on its own rule. Proves the package is not bound to
-    // any one auth package.
-    app()->bind(AuthorizesAgentTools::class, fn (): AuthorizesAgentTools => new class implements AuthorizesAgentTools
-    {
-        public function authorizes(?Authenticatable $user, string $ability): bool
-        {
-            return $user !== null && $ability === 'agent-mcp:read';
-        }
-    });
-
-    config()->set('agent-mcp.audit.enabled', false);
-
-    $user = new StubTokenUser(id: 1, abilities: []);
-
-    StubAgentServer::actingAs($user)
-        ->tool(StubAgentTool::class, [])
-        ->assertOk();
 });
 
 it('hides the tool via shouldRegister when disabled in config (best-effort UX)', function (): void {

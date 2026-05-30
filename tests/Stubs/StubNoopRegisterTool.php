@@ -8,16 +8,11 @@ use Laravel\Mcp\Response;
 
 /**
  * Variant whose shouldRegister() is a no-op that always returns true, proving the
- * security boundary is handle()/authorize() and NOT registration visibility: even
- * if a tool is always registered, an ability-less token is denied in handle().
+ * tool-enabled boundary is handle()/authorize() and NOT registration visibility:
+ * even if a tool is always registered, a disabled tool is denied in handle().
  */
 class StubNoopRegisterTool extends AbstractAgentTool
 {
-    protected function requiredAbility(): string
-    {
-        return 'read';
-    }
-
     public function shouldRegister(): bool
     {
         return true;

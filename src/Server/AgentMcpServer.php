@@ -17,8 +17,9 @@ use Laravel\Mcp\Server\Tool;
 /**
  * The package's MCP server: exposes the five agent tools over both transports.
  *
- * Each tool gates itself on its config flag (shouldRegister) and enforces its
- * Sanctum ability authoritatively in handle(); this server only declares the set.
+ * Each tool gates itself on its config enable flag (shouldRegister) and re-checks it
+ * authoritatively in handle(); this server only declares the set. The server-admin key
+ * is verified by KeyAuthMiddleware at the HTTP layer before any tool runs.
  * StripsErrorTraces overrides handle() so a thrown tool error never leaks a stack
  * trace, even with app.debug=true (Oracle IMP6).
  */

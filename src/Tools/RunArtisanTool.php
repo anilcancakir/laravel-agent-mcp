@@ -31,11 +31,6 @@ class RunArtisanTool extends AbstractAgentTool
 {
     protected string $name = 'run_artisan';
 
-    protected function requiredAbility(): string
-    {
-        return 'artisan';
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -52,7 +47,7 @@ class RunArtisanTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative ability + tool-enabled gate (Oracle IMP5: handle() is the boundary).
+        // 1. Authoritative tool-enabled gate (Oracle IMP5: handle() is the boundary).
         if ($denial = $this->authorize()) {
             return $denial;
         }

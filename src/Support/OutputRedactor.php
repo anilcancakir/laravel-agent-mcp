@@ -10,8 +10,9 @@ namespace Anilcancakir\LaravelAgentMcp\Support;
  * guarantee (Oracle IMP4): legitimately-stored data that resembles a secret will
  * be redacted, and novel secret formats will pass through undetected.
  *
- * The real security boundary is the readonly DB grant + Sanctum ability scoping.
- * This class adds a supplemental layer at the tool-output edge.
+ * The real security boundary is the readonly DB grant + the SELECT validator, behind
+ * the server-admin key checked at the HTTP layer. This class adds a supplemental layer
+ * at the tool-output edge.
  */
 final class OutputRedactor
 {

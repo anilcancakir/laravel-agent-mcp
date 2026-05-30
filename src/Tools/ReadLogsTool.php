@@ -66,7 +66,7 @@ final class ReadLogsTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative ability + tool-enabled gate (base; fail closed).
+        // 1. Authoritative tool-enabled gate (base; fail closed).
         if ($denial = $this->authorize()) {
             return $denial;
         }
@@ -218,10 +218,5 @@ final class ReadLogsTool extends AbstractAgentTool
 
             array_unshift($collected, $line);
         }
-    }
-
-    protected function requiredAbility(): string
-    {
-        return 'read';
     }
 }

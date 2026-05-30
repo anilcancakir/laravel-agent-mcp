@@ -10,16 +10,11 @@ use Laravel\Mcp\Response;
  * Minimal concrete tool exercising the AbstractAgentTool pipeline:
  * authorize() -> audit() -> work -> redactor() -> return.
  *
- * It requires the 'read' ability and echoes a redacted string so the tests can
- * assert the deny path, the audit record, and the redaction layer.
+ * It echoes a redacted string so the tests can assert the tool-enabled gate, the
+ * audit record, and the redaction layer.
  */
 class StubAgentTool extends AbstractAgentTool
 {
-    protected function requiredAbility(): string
-    {
-        return 'read';
-    }
-
     public function handle(Request $request): Response
     {
         if ($denial = $this->authorize()) {

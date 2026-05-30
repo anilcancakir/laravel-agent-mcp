@@ -35,11 +35,6 @@ class DbQueryTool extends AbstractAgentTool
      */
     private const ALLOWED_OPERATORS = ['=', '!=', '<', '>', '<=', '>=', 'like', 'in'];
 
-    protected function requiredAbility(): string
-    {
-        return 'read';
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -82,7 +77,7 @@ class DbQueryTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative authorization gate — must be first.
+        // 1. Authoritative tool-enabled gate — must be first.
         if ($denial = $this->authorize()) {
             return $denial;
         }
