@@ -67,6 +67,14 @@ it('declares the five package tools on the server', function (): void {
     ]);
 });
 
+it('registers a default audit channel when the operator has not defined one', function (): void {
+    // Audit is on by default; without a defined channel the LogManager silently falls
+    // back to the emergency logger on every tool call. The provider must define a sane
+    // default so the audit trail works out of the box.
+    expect(config('logging.channels.agent-mcp-audit'))->toBeArray();
+    expect(config('logging.channels.agent-mcp-audit.driver'))->toBe('single');
+});
+
 it('rejects an unauthenticated request to the MCP route with 401', function (): void {
     config()->set('agent-mcp.enabled', true);
     config()->set('agent-mcp.auto_register', true);

@@ -12,6 +12,7 @@ use Illuminate\Database\Connection;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Sanctum\Contracts\HasApiTokens;
+use Laravel\Sanctum\TransientToken;
 
 /**
  * Shared base for every agent MCP tool: the authorization hub plus the common
@@ -88,7 +89,27 @@ abstract class AbstractAgentTool extends Tool
             return Response::error('This tool is disabled.');
         }
 
-        if (! $user instanceof HasApiTokens || ! $user->tokenCan($this->resolvedAbility())) {
+        $ability = $this->resolvedAbility();
+
+        // Fail closed on a misconfigured ability. An empty ability string would be
+        // granted by a wildcard ('*') Sanctum token, so a missing abilities config key
+        // must DENY, never silently widen access.
+        if ($ability === '') {
+            return Response::error('This action is unauthorized.');
+        }
+
+        if (! $user instanceof HasApiTokens) {
+            return Response::error('This action is unauthorized.');
+        }
+
+        // The agent must present a scoped personal access token. A first-party session
+        // credential resolves to a TransientToken whose can() returns true for every
+        // ability, which would bypass ability scoping entirely; reject it explicitly.
+        if ($user->currentAccessToken() instanceof TransientToken) {
+            return Response::error('This action is unauthorized.');
+        }
+
+        if (! $user->tokenCan($ability)) {
             return Response::error('This action is unauthorized.');
         }
 
@@ -107,10 +128,23 @@ abstract class AbstractAgentTool extends Tool
             return false;
         }
 
+        // Mirror authorize()'s fail-closed checks so registration UX never advertises a
+        // tool the authoritative gate would deny: an unresolvable ability or a session
+        // (TransientToken) principal hides the tool here too.
+        $ability = $this->resolvedAbility();
+
+        if ($ability === '') {
+            return false;
+        }
+
         $user = $this->user();
 
         if ($user instanceof HasApiTokens) {
-            return $user->tokenCan($this->resolvedAbility());
+            if ($user->currentAccessToken() instanceof TransientToken) {
+                return false;
+            }
+
+            return $user->tokenCan($ability);
         }
 
         return true;

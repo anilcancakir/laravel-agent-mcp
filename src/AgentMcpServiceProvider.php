@@ -50,6 +50,12 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         //    still gets a working limiter.
         $this->registerRateLimiter();
 
+        // 1b. Ensure the audit channel exists. Audit is on by default and a headline
+        //     feature; without a defined channel Laravel's LogManager would silently
+        //     fall back to the emergency logger (stderr) on every tool call. Define a
+        //     sane default only when the operator has not configured the channel.
+        $this->registerAuditChannel();
+
         // 2. Publish the agent assets (config is handled by hasConfigFile; these are the
         //    AGENTS.md snippet + client config example authored in Step 16). Console-only,
         //    matching the framework convention; the path maps are lazy.
@@ -61,6 +67,34 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         }
 
         $this->registerTransports();
+    }
+
+    /**
+     * Register a default file-backed audit channel when the operator has not defined
+     * one. Keeps the audit trail (a stated security feature) working out of the box
+     * instead of degrading to the emergency logger. The operator can override by
+     * defining the channel under logging.channels, or point audit.channel elsewhere.
+     */
+    private function registerAuditChannel(): void
+    {
+        $channel = config('agent-mcp.audit.channel');
+
+        if (! is_string($channel) || $channel === '') {
+            return;
+        }
+
+        if (config("logging.channels.{$channel}") !== null) {
+            return;
+        }
+
+        config([
+            "logging.channels.{$channel}" => [
+                'driver' => 'single',
+                'path' => storage_path('logs/agent-mcp-audit.log'),
+                'level' => 'info',
+                'replace_placeholders' => true,
+            ],
+        ]);
     }
 
     /**

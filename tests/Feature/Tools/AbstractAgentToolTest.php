@@ -8,6 +8,21 @@ use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubNoopRegisterTool;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server\McpServiceProvider;
+use Laravel\Sanctum\TransientToken;
+
+/**
+ * A first-party session principal: carries the ability via tokenCan() but whose
+ * current access token is a TransientToken (Sanctum session auth), which can() would
+ * grant for any ability. authorize() must reject it so session auth cannot bypass
+ * ability scoping.
+ */
+class SessionStubUser extends StubTokenUser
+{
+    public function currentAccessToken(): ?object
+    {
+        return new TransientToken;
+    }
+}
 
 // AbstractAgentTool is the authorization hub: the authoritative ability + tool-enabled
 // check lives in authorize() (called at the top of every subclass handle()), independent
@@ -98,6 +113,28 @@ it('runs tool output through the redactor before returning', function (): void {
         ->assertOk()
         ->assertSee('[REDACTED]')
         ->assertDontSee('secret@example.com');
+});
+
+it('denies in handle() when the required ability config resolves to empty (fail closed)', function (): void {
+    // A misconfigured/missing ability key must DENY, never resolve to '' which a
+    // wildcard ('*') token would be granted.
+    config()->set('agent-mcp.abilities.read', null);
+
+    $user = new StubTokenUser(id: 1, abilities: ['*', 'agent-mcp:read']);
+
+    StubAgentServer::actingAs($user)
+        ->tool(StubAgentTool::class, [])
+        ->assertHasErrors();
+});
+
+it('denies in handle() for a session (TransientToken) principal even with the ability', function (): void {
+    // Sanctum first-party session auth yields a TransientToken whose can() returns true
+    // for every ability. The agent must use a scoped personal access token; reject it.
+    $user = new SessionStubUser(id: 1, abilities: ['agent-mcp:read']);
+
+    StubAgentServer::actingAs($user)
+        ->tool(StubAgentTool::class, [])
+        ->assertHasErrors();
 });
 
 it('hides the tool via shouldRegister when disabled in config (best-effort UX)', function (): void {
