@@ -1,7 +1,6 @@
 <?php
 
-declare(strict_types=1);
-use Anilcancakir\LaravelAgentMcp\Authorization\SanctumTokenAuthorizer;
+use Anilcancakir\LaravelAgentMcp\Http\Middleware\KeyAuthMiddleware;
 
 return [
 
@@ -23,9 +22,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | When true (default) the service provider calls Mcp::web() and Mcp::local()
-    | at boot so no customer route file edit is required. Set to false (Oracle
-    | IMP3 opt-out) when you want to wire the server manually in routes/ai.php
-    | instead. This is a convenience toggle, NOT a security control.
+    | at boot so no customer route file edit is required. Set to false when you
+    | want to wire the server manually in routes/ai.php instead. This is a
+    | convenience toggle, NOT a security control.
     |
     */
 
@@ -33,25 +32,52 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Server-admin authentication key
+    |--------------------------------------------------------------------------
+    |
+    | A strong random value the operator sets via AGENT_MCP_KEY. The server is
+    | FAIL-CLOSED: if this is null or empty every request returns 401 before any
+    | compare runs. Generate a key with: php -r "echo bin2hex(random_bytes(32));"
+    |
+    */
+
+    'key' => env('AGENT_MCP_KEY'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Key header name
+    |--------------------------------------------------------------------------
+    |
+    | The HTTP request header the middleware reads the Bearer token from.
+    | Defaults to Authorization, which means standard "Authorization: Bearer <key>"
+    | semantics. Override via AGENT_MCP_KEY_HEADER for non-standard clients.
+    |
+    */
+
+    'key_header' => env('AGENT_MCP_KEY_HEADER', 'Authorization'),
+
+    /*
+    |--------------------------------------------------------------------------
     | HTTP route prefix
     |--------------------------------------------------------------------------
     */
 
-    'route' => 'mcp',
+    'route' => 'agent-mcp',
 
     /*
     |--------------------------------------------------------------------------
     | Route middleware
     |--------------------------------------------------------------------------
     |
-    | Applied to the HTTP MCP route. auth:sanctum ensures every request carries
-    | a valid personal-access-token before the MCP layer is reached. The
-    | throttle limiter is defined in the service provider at boot.
+    | Applied to the HTTP MCP route. KeyAuthMiddleware enforces the server-admin
+    | key (fail-closed) before the MCP layer is reached. The throttle limiter is
+    | defined in the service provider at boot, keyed by a fingerprint of the
+    | presented key rather than the caller IP.
     |
     */
 
     'middleware' => [
-        'auth:sanctum',
+        KeyAuthMiddleware::class,
         'throttle:agent-mcp',
     ],
 
@@ -75,46 +101,15 @@ return [
     | Read-only database connection
     |--------------------------------------------------------------------------
     |
-    | ALL database access in this package goes through this connection name. The
-    | connection MUST be backed by a SELECT-only DB user at the grant level (see
-    | README for per-engine GRANT recipes). The default name 'readonly' is a
-    | convention; update to match your config/database.php connection name.
+    | The connection name this package uses for all DB access. When null the
+    | resolver falls back to the app default connection and enforces read-only at
+    | the code layer (SELECT validator + per-engine session pragma). A dedicated
+    | readonly-grant DB user is strongly recommended for defense-in-depth,
+    | especially on MySQL where no per-session read-only exists for normal users.
     |
     */
 
-    'connection' => env('AGENT_MCP_DB_CONNECTION', 'readonly'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Sanctum token abilities
-    |--------------------------------------------------------------------------
-    |
-    | The exact ability strings a Sanctum PAT must carry to use each tool group.
-    | Do not widen these to a catch-all; scoped abilities are the principal auth
-    | boundary alongside the DB grant.
-    |
-    */
-
-    'abilities' => [
-        'read' => 'agent-mcp:read',
-        'artisan' => 'agent-mcp:artisan',
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Tool authorizer
-    |--------------------------------------------------------------------------
-    |
-    | The class (implementing Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools)
-    | that decides whether the authenticated principal holds a tool's required
-    | ability. The default authorizes via Sanctum personal-access-token abilities.
-    | A host that authenticates differently (Passport scopes, a custom token guard)
-    | binds its own implementation here; the package then carries no hard dependency
-    | on Sanctum. Authentication itself is the route middleware's job (see above).
-    |
-    */
-
-    'authorizer' => SanctumTokenAuthorizer::class,
+    'connection' => env('AGENT_MCP_DB_CONNECTION'),
 
     /*
     |--------------------------------------------------------------------------
@@ -176,7 +171,7 @@ return [
     | statement_timeout_ms: per-statement execution cap applied to the readonly
     | connection at the DB session layer (MySQL max_execution_time, PostgreSQL
     | statement_timeout, SQLite query_only pragma). Mitigates DoS via expensive
-    | or long-running agent-issued SELECTs (Oracle CRIT2 DoS vector).
+    | or long-running agent-issued SELECTs.
     |
     */
 
@@ -211,8 +206,7 @@ return [
     | secrets that appear in query results or log lines. This is NOT a security
     | guarantee: legitimately-stored data that looks like a secret will be
     | redacted, and novel secret formats will pass through undetected. The real
-    | security boundary is the readonly DB grant + Sanctum ability scoping
-    | (Oracle IMP4).
+    | security boundary is the readonly DB grant and the SELECT validator.
     |
     | patterns: list of PCRE regexes. Each match is replaced with [REDACTED].
     |
@@ -245,10 +239,10 @@ return [
     | Audit logging
     |--------------------------------------------------------------------------
     |
-    | Records tool invocations (tool name, argument shape, caller identity,
-    | timestamp) to a dedicated log channel. Argument VALUES are never logged;
-    | only the shape (key names + value types) is captured to preserve
-    | auditability without re-creating a secondary data store of agent-read data.
+    | Records tool invocations (tool name, argument shape, timestamp) to a
+    | dedicated log channel. Argument VALUES are never logged; only the shape
+    | (key names + value types) is captured to preserve auditability without
+    | re-creating a secondary data store of agent-read data.
     |
     | Enabled by default: operators need visibility into what the agent is doing
     | against their production database before they can trust it.

@@ -4,8 +4,34 @@
 // Tests here assert that the resolved defaults match the package's contract; they do not
 // manually reload the file — the harness already does that at boot.
 
-it('resolves readonly as the default db connection', function (): void {
-    expect(config('agent-mcp.connection'))->toBe('readonly');
+use Anilcancakir\LaravelAgentMcp\Http\Middleware\KeyAuthMiddleware;
+
+it('defaults key to null so the server is fail-closed until the operator sets AGENT_MCP_KEY', function (): void {
+    expect(config('agent-mcp.key'))->toBeNull();
+});
+
+it('defaults key_header to Authorization matching the Bearer scheme', function (): void {
+    expect(config('agent-mcp.key_header'))->toBe('Authorization');
+});
+
+it('defaults route to agent-mcp', function (): void {
+    expect(config('agent-mcp.route'))->toBe('agent-mcp');
+});
+
+it('ships KeyAuthMiddleware and throttle middleware by default', function (): void {
+    $middleware = config('agent-mcp.middleware');
+
+    expect($middleware)->toContain(KeyAuthMiddleware::class);
+    expect($middleware)->toContain('throttle:agent-mcp');
+});
+
+it('does not ship abilities or authorizer keys', function (): void {
+    expect(config('agent-mcp'))->not()->toHaveKey('abilities');
+    expect(config('agent-mcp'))->not()->toHaveKey('authorizer');
+});
+
+it('defaults connection to null so the resolver falls back to the app default', function (): void {
+    expect(config('agent-mcp.connection'))->toBeNull();
 });
 
 it('disables run_artisan by default to prevent confused-deputy command execution', function (): void {
@@ -19,15 +45,6 @@ it('ships an empty artisan allowlist so the tool is effectively off until explic
 it('enables the package and auto_register by default', function (): void {
     expect(config('agent-mcp.enabled'))->toBeTrue();
     expect(config('agent-mcp.auto_register'))->toBeTrue();
-});
-
-it('ships auth:sanctum and throttle middleware by default', function (): void {
-    expect(config('agent-mcp.middleware'))->toBe(['auth:sanctum', 'throttle:agent-mcp']);
-});
-
-it('ships the correct sanctum ability names', function (): void {
-    expect(config('agent-mcp.abilities.read'))->toBe('agent-mcp:read');
-    expect(config('agent-mcp.abilities.artisan'))->toBe('agent-mcp:artisan');
 });
 
 it('enables all read tools and disables run_artisan by default', function (): void {
