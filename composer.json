@@ -12,14 +12,10 @@
     },
     "require-dev": {
         "orchestra/testbench": "^9.0||^10.0||^11.0",
-        "pestphp/pest": "^4.0",
+        "pestphp/pest": "^4.0.2",
         "pestphp/pest-plugin-laravel": "^4.0",
         "larastan/larastan": "^3.0",
-        "laravel/pint": "^1.18",
-        "laravel/sanctum": "^4.0"
-    },
-    "suggest": {
-        "laravel/sanctum": "Enables the default bearer-token authentication (auth:sanctum middleware) and the bundled TokenAbilityAuthorizer. Not required: any authentication guard plus a custom AuthorizesAgentTools binding works."
+        "laravel/pint": "^1.18"
     },
     "autoload": {
         "psr-4": {
@@ -40,6 +36,7 @@
     },
     "scripts": {
         "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage --min=80",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=512M",
         "format": "vendor/bin/pint"
     },
