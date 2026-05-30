@@ -184,8 +184,13 @@ class ReadonlyConnectionResolver
 
         $timeoutMs = (int) config('agent-mcp.query.statement_timeout_ms', 5000);
 
+        // Supported engines only (MySQL, PostgreSQL, SQLite). MariaDB is intentionally
+        // NOT mapped to MySQL's max_execution_time: MariaDB uses max_statement_time
+        // (seconds, not milliseconds), so the MySQL statement would error there. An
+        // unsupported engine falls through to no session hardening rather than running
+        // a statement the driver rejects; the readonly grant remains the real boundary.
         match ($connection->getDriverName()) {
-            'mysql', 'mariadb' => $connection->statement("SET SESSION max_execution_time = {$timeoutMs}"),
+            'mysql' => $connection->statement("SET SESSION max_execution_time = {$timeoutMs}"),
             'pgsql' => $connection->statement("SET statement_timeout = {$timeoutMs}"),
             'sqlite' => $connection->statement('PRAGMA query_only = ON'),
             default => null,
