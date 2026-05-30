@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\DB;
 // tests: a write that succeeds is a security regression, not a test bug.
 
 it('resolves the configured readonly connection by name', function (): void {
+    // A dedicated connection name is configured: the resolver uses it directly
+    // (the recommended setup with a dedicated readonly DB user).
+    config()->set('agent-mcp.connection', 'readonly');
+
     $resolver = new ReadonlyConnectionResolver;
 
     $connection = $resolver->connection();
@@ -19,13 +23,58 @@ it('resolves the configured readonly connection by name', function (): void {
     expect($connection->getName())->toBe('readonly');
 });
 
-it('throws a clear configuration error when the connection name is missing', function (): void {
+it('falls back to a hardened ephemeral clone of the default when no connection is configured', function (): void {
     config()->set('agent-mcp.connection', null);
 
     $resolver = new ReadonlyConnectionResolver;
 
-    expect(fn (): Connection => $resolver->connection())
-        ->toThrow(RuntimeException::class);
+    $resolved = $resolver->connection();
+    $default = DB::connection(config('database.default'));
+
+    // The fallback must NOT reuse the shared default instance: hardening it in place
+    // (PRAGMA query_only / read-only session) would leak to the app under Octane or
+    // any persistent connection. A distinct ephemeral connection is the boundary.
+    expect($resolved)->toBeInstanceOf(Connection::class);
+    expect($resolved->getName())->toBe('agent-mcp-readonly');
+    expect($resolved)->not->toBe($default);
+});
+
+it('does not leak query_only onto the shared default connection on fallback', function (): void {
+    config()->set('agent-mcp.connection', null);
+
+    $resolver = new ReadonlyConnectionResolver;
+
+    $resolver->connection();
+
+    // The shared default must remain writable: query_only must NOT have leaked onto it.
+    $default = DB::connection(config('database.default'));
+    $queryOnly = $default->selectOne('PRAGMA query_only');
+
+    expect((int) $queryOnly->query_only)->toBe(0);
+});
+
+it('rejects a write through the ephemeral fallback connection (fail closed)', function (): void {
+    config()->set('agent-mcp.connection', null);
+
+    $resolver = new ReadonlyConnectionResolver;
+
+    $connection = $resolver->connection();
+
+    // The cloned ephemeral connection is hardened with PRAGMA query_only = ON, so a
+    // write DDL is physically refused: "attempt to write a readonly database".
+    expect(fn (): bool => $connection->statement('CREATE TABLE widgets (id INTEGER PRIMARY KEY)'))
+        ->toThrow(QueryException::class, 'readonly database');
+});
+
+it('falls back to the ephemeral clone when the configured connection is an empty string', function (): void {
+    config()->set('agent-mcp.connection', '');
+
+    $resolver = new ReadonlyConnectionResolver;
+
+    $resolved = $resolver->connection();
+
+    expect($resolved->getName())->toBe('agent-mcp-readonly');
+    expect($resolved)->not->toBe(DB::connection(config('database.default')));
 });
 
 it('throws when the resolved connection does not exist', function (): void {
@@ -60,19 +109,12 @@ it('rejects a write statement on the resolved readonly connection (fail closed)'
         ->toThrow(QueryException::class, 'readonly database');
 });
 
-it('does not silently fall back to the default connection when readonly is misconfigured', function (): void {
-    config()->set('agent-mcp.connection', '');
-
-    $resolver = new ReadonlyConnectionResolver;
-
-    expect(fn (): Connection => $resolver->connection())
-        ->toThrow(RuntimeException::class);
-});
-
 it('throws from assertReadonly when EMULATE_PREPARES is true on a supporting driver', function (): void {
     // SQLite's PDO driver cannot report ATTR_EMULATE_PREPARES, so the assertion
-    // reads the configured option. Configure the readonly connection with the
-    // dangerous override and purge so the resolver sees it on resolution.
+    // reads the configured option. Point at the dedicated readonly connection,
+    // configure it with the dangerous override, and purge so the resolver sees it
+    // on resolution.
+    config()->set('agent-mcp.connection', 'readonly');
     config()->set('database.connections.readonly.options', [
         PDO::ATTR_EMULATE_PREPARES => true,
     ]);
@@ -93,11 +135,17 @@ it('passes assertReadonly when EMULATE_PREPARES is not enabled', function (): vo
 })->throwsNoExceptions();
 
 it('applies MySQL session statement timeout hardening', function (): void {
-    // Timeout SET is engine-specific; SQLite has no max_execution_time. This test
-    // documents the contract and is skipped unless a MySQL connection is wired.
+    // On MySQL the resolver issues SET SESSION max_execution_time = <ms>. MySQL has
+    // no per-session read-only for a normal user, so the code layer (SELECT validator
+    // + query builder) is the write boundary and a readonly GRANT is recommended.
+    // SQLite has no max_execution_time, so this contract test is skipped unless a
+    // MySQL connection is wired.
     expect(true)->toBeTrue();
 })->skip('MySQL connection not available in this environment');
 
-it('applies PostgreSQL statement_timeout hardening', function (): void {
+it('applies PostgreSQL read-only session and statement_timeout hardening', function (): void {
+    // On PostgreSQL the resolver issues SET default_transaction_read_only = on (the
+    // session itself refuses writes) AND SET statement_timeout = <ms>. Skipped unless
+    // a PostgreSQL connection is wired.
     expect(true)->toBeTrue();
 })->skip('PostgreSQL connection not available in this environment');

@@ -21,10 +21,26 @@ use RuntimeException;
  *     against an emulated-prepare connection.
  *   - Per-engine session hardening applied once per resolved connection:
  *       MySQL:      SET SESSION max_execution_time = <statement_timeout_ms>
- *       PostgreSQL: SET statement_timeout = <statement_timeout_ms>
+ *       PostgreSQL: SET default_transaction_read_only = on
+ *                   SET statement_timeout = <statement_timeout_ms>
  *       SQLite:     PRAGMA query_only = ON
  *     SQLite has no GRANT system, so query_only plus a read-only DSN plus the
  *     statement validator are the only available enforcement (Oracle CRIT1).
+ *     MySQL has NO per-session read-only flag for a normal user, so on MySQL the
+ *     code layer (the SELECT-statement validator + the query builder) is the write
+ *     boundary; a readonly GRANT is strongly recommended there (Oracle IMP5).
+ *
+ * Connection resolution + the default-connection fallback:
+ *   - When config('agent-mcp.connection') names a dedicated connection, that
+ *     connection is resolved and hardened directly (the recommended setup: a
+ *     dedicated readonly DB user).
+ *   - When it is null/empty, the resolver falls back to the app's DEFAULT
+ *     connection, but it NEVER hardens the shared default in place: PRAGMA
+ *     query_only / SET ... read-only would leak to the application under Octane or
+ *     any persistent/pooled connection. Instead it registers an EPHEMERAL
+ *     connection (name "agent-mcp-readonly") cloned from the default's config and
+ *     hardens that clone. The default-connection fallback is therefore
+ *     code-enforced read-only; a dedicated readonly DB user remains recommended.
  *
  * What the CUSTOMER must satisfy on the readonly DB user (NOT enforceable here,
  * documented per the plan; grant introspection is explicitly out of scope):
@@ -41,6 +57,13 @@ use RuntimeException;
  */
 class ReadonlyConnectionResolver
 {
+    /**
+     * Name of the ephemeral connection registered when no dedicated readonly
+     * connection is configured. It is a hardened clone of the app default, kept
+     * distinct so hardening never touches the shared default instance.
+     */
+    protected const FALLBACK_CONNECTION = 'agent-mcp-readonly';
+
     /**
      * Object hashes of connection instances already hardened, so the per-engine
      * session statements run once per underlying connection rather than on every
@@ -87,25 +110,27 @@ class ReadonlyConnectionResolver
     }
 
     /**
-     * Resolve the configured connection instance by name.
+     * Resolve the read-only connection instance.
      *
-     * @throws RuntimeException When the configured name is empty or the connection
-     *                          cannot be resolved. Never falls back to the default
-     *                          connection (a missing readonly connection is fatal).
+     * When config('agent-mcp.connection') names a dedicated connection, that
+     * connection is resolved. When it is null/empty, the resolver falls back to a
+     * hardened ephemeral CLONE of the app default connection (never the shared
+     * default instance, which must stay writable for the application).
+     *
+     * @throws RuntimeException When a configured name is not defined under
+     *                          database.connections, or when the default-connection
+     *                          fallback cannot read the default's config.
      */
     protected function resolve(): Connection
     {
         $name = config('agent-mcp.connection');
 
-        // 1. The readonly connection name is mandatory. An empty/missing value must
-        //    NOT silently fall back to the app's default connection, which is
-        //    typically writable.
+        // 1. No dedicated readonly connection configured: fall back to an ephemeral
+        //    clone of the app default. The fallback never hardens the shared default
+        //    in place (it would leak read-only state to the app under persistent or
+        //    pooled connections), so a distinct cloned connection is the boundary.
         if (! is_string($name) || $name === '') {
-            throw new RuntimeException(
-                'The agent-mcp readonly connection is not configured. Set a connection '
-                .'name in config/agent-mcp.php ("connection"); the package refuses to fall '
-                .'back to the default connection.'
-            );
+            return $this->resolveDefaultFallback();
         }
 
         // 2. The named connection must exist. DB::connection() throws for an unknown
@@ -122,6 +147,38 @@ class ReadonlyConnectionResolver
         }
 
         return DB::connection($name);
+    }
+
+    /**
+     * Register (idempotently) and resolve the ephemeral connection cloned from the
+     * app default, so per-engine hardening lands on the clone and never mutates the
+     * shared default connection the application uses for writes.
+     *
+     * @throws RuntimeException When the default connection's config cannot be read.
+     */
+    protected function resolveDefaultFallback(): Connection
+    {
+        $defaultName = config('database.default');
+
+        $defaultConfig = config('database.connections.'.$defaultName);
+
+        // The default connection must be defined for the clone to be meaningful;
+        // fail loud rather than resolving an undefined connection later.
+        if (! is_array($defaultConfig)) {
+            throw new RuntimeException(
+                'The agent-mcp readonly fallback could not read the default connection '
+                ."[{$defaultName}] config under database.connections. Define the default "
+                .'connection or set config/agent-mcp.php ("connection") to a dedicated '
+                .'readonly connection.'
+            );
+        }
+
+        // Register the clone under a distinct name. config()->set is idempotent here:
+        // re-setting the same cloned config is harmless, and DB::connection caches the
+        // resolved instance so hardening still runs once per underlying connection.
+        config()->set('database.connections.'.self::FALLBACK_CONNECTION, $defaultConfig);
+
+        return DB::connection(self::FALLBACK_CONNECTION);
     }
 
     /**
@@ -187,14 +244,32 @@ class ReadonlyConnectionResolver
         // (seconds, not milliseconds), so the MySQL statement would error there. An
         // unsupported engine falls through to no session hardening rather than running
         // a statement the driver rejects; the readonly grant remains the real boundary.
+        //
+        // PostgreSQL also gets a per-session read-only flag so the session itself
+        // refuses writes. MySQL has NO per-session read-only flag for a normal user,
+        // so the timeout is all that is set at the session layer: on MySQL the SELECT
+        // validator + query builder are the write boundary, and a readonly GRANT is
+        // strongly recommended (Oracle IMP5).
         match ($connection->getDriverName()) {
             'mysql' => $connection->statement("SET SESSION max_execution_time = {$timeoutMs}"),
-            'pgsql' => $connection->statement("SET statement_timeout = {$timeoutMs}"),
+            'pgsql' => $this->hardenPostgres($connection, $timeoutMs),
             'sqlite' => $connection->statement('PRAGMA query_only = ON'),
             default => null,
         };
 
         $this->hardened[$key] = true;
+    }
+
+    /**
+     * Harden a PostgreSQL session: make the session read-only AND bound the
+     * statement time. default_transaction_read_only makes the server refuse writes
+     * for the session regardless of the user's grants; statement_timeout caps a
+     * runaway read.
+     */
+    protected function hardenPostgres(Connection $connection, int $timeoutMs): void
+    {
+        $connection->statement('SET default_transaction_read_only = on');
+        $connection->statement("SET statement_timeout = {$timeoutMs}");
     }
 
     /**
