@@ -65,35 +65,31 @@ abstract class AbstractAgentTool extends Tool
      * refused, or null when the call may proceed.
      *
      * Denial conditions (fail closed):
-     *   1. No authenticated principal on the guard. The HTTP route carries
-     *      auth:sanctum, so this should not happen in production, but handle()
-     *      does not trust that: it re-checks rather than assuming the middleware
-     *      ran (independent of the transport / request object).
-     *   2. The tool is disabled in config('agent-mcp.tools.<name>').
-     *   3. The configured authorizer (AuthorizesAgentTools) denies the required
-     *      ability. The default Sanctum authorizer fails closed on an empty ability,
-     *      a non-token principal, or a session TransientToken; a host that uses a
-     *      different auth package binds its own authorizer via config.
+     *   1. The tool is disabled in config('agent-mcp.tools.<name>').
+     *   2. The configured authorizer (AuthorizesAgentTools) denies. It owns the full
+     *      access decision (caller presence + ability); the default Sanctum authorizer
+     *      fails closed on a null user, an empty ability, a non-token principal, or a
+     *      session TransientToken. A host that authenticates differently (Passport
+     *      scopes, request-attribute envelopes) binds its own authorizer via config.
      *
-     * Denials are intentionally generic: they never echo the ability string or
-     * config key, to avoid leaking the authorization surface to the agent.
+     * handle() re-checks here rather than trusting the route middleware: authorization
+     * is enforced at the tool regardless of transport. Denials are intentionally
+     * generic, never echoing the ability string or config key, to avoid leaking the
+     * authorization surface to the agent.
      */
     protected function authorize(): ?Response
     {
-        $user = $this->user();
-
-        if (! $user instanceof Authenticatable) {
-            return Response::error('Unauthenticated.');
-        }
-
         if (! $this->toolEnabled()) {
             return Response::error('This tool is disabled.');
         }
 
-        // The configured authorizer is the single ability boundary. It fails closed on
-        // an empty ability or a credential it cannot confirm carries the ability, so
-        // a misconfigured ability key or a session credential can never widen access.
-        if (! $this->authorizer()->authorizes($user, $this->resolvedAbility())) {
+        // The configured authorizer owns the FULL access decision (caller presence +
+        // ability). It receives the guard user as a hint, but a host whose principal
+        // lives elsewhere (request attributes, a custom token envelope) can ignore it
+        // and read its own context via request(). It fails closed: the default denies a
+        // null user, an empty ability, or a credential it cannot confirm, so a missing
+        // ability key or a session credential can never widen access.
+        if (! $this->authorizer()->authorizes($this->user(), $this->resolvedAbility())) {
             return Response::error('This action is unauthorized.');
         }
 
