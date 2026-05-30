@@ -1,32 +1,38 @@
 {
     "mcpServers": {
-        // HTTP transport (Streamable HTTP, recommended for remote/production use).
+        // HTTP transport (Streamable HTTP, recommended for remote or production use).
         //
-        // Note for Claude Desktop users: Claude Desktop does not natively support
-        // sending custom HTTP headers. Use the `mcp-remote` shim to forward the
-        // Authorization header. See: https://github.com/geelen/mcp-remote
-        //
-        // The ${AGENT_MCP_TOKEN} placeholder is expanded from your environment.
-        // Set AGENT_MCP_TOKEN in your shell profile or .env.local before starting
-        // the client.
+        // Set AGENT_MCP_KEY in your shell profile or .env.local before starting
+        // the client. The ${AGENT_MCP_KEY} placeholder is expanded from your
+        // environment. Never paste a real key here; use the environment variable.
         "agent-mcp-http": {
             "type": "http",
-            "url": "https://your-app.test/mcp",
+            "url": "https://your-app.test/agent-mcp",
             "headers": {
-                "Authorization": "Bearer ${AGENT_MCP_TOKEN}"
+                "Authorization": "Bearer ${AGENT_MCP_KEY}"
             }
         },
 
-        // stdio transport (local artisan process, no network hop).
+        // stdio bridge transport (remote bridge, for clients such as Claude Desktop
+        // that cannot send custom HTTP headers natively).
         //
-        // Use this when the client runs on the same machine as the Laravel app.
-        // The artisan process is spawned once per session; no HTTP server required.
-        // Ensure the working directory is your Laravel project root, or use an
-        // absolute path to the artisan binary.
+        // The bridge spawns a local artisan process that reads JSON-RPC lines from
+        // stdin, forwards each request to the remote HTTP endpoint with the Bearer
+        // key, and writes the reply to stdout. This replaces the mcp-remote shim
+        // for this package.
+        //
+        // AGENT_MCP_URL: the remote /agent-mcp endpoint (must be HTTPS in production).
+        // AGENT_MCP_KEY: the server-admin key configured on the remote server.
+        // Both values are operator-set environment variables; they are never written
+        // to stdout or logged by the bridge.
         "agent-mcp-stdio": {
             "type": "stdio",
             "command": "php",
-            "args": ["artisan", "mcp:start", "agent-mcp"]
+            "args": ["artisan", "agent-mcp:stdio"],
+            "env": {
+                "AGENT_MCP_URL": "https://your-app.test/agent-mcp",
+                "AGENT_MCP_KEY": "${AGENT_MCP_KEY}"
+            }
         }
     }
 }

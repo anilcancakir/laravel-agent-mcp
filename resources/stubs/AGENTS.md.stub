@@ -1,8 +1,10 @@
 # Agent MCP Tools
 
-This project exposes a set of read-only MCP tools for AI agent use. Use them
-proactively to ground your answers in real data rather than assumptions. The
-tools are safe to call frequently; they have no write access to the database.
+This project exposes a set of read-only MCP tools for AI agent use via the
+`/agent-mcp` endpoint. Access is controlled by a server-admin key (no user
+tokens; set `AGENT_MCP_KEY` on the server). Use these tools proactively to
+ground your answers in real data rather than assumptions. The tools are safe to
+call frequently; they have no write access to the database.
 
 ## Tool Usage Table
 
