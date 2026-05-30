@@ -4,7 +4,9 @@ A secure MCP (Model Context Protocol) server package for Laravel. It exposes a s
 
 ## What it does
 
-The package registers an MCP server on your Laravel application over HTTP (Streamable HTTP transport) and/or a local stdio bridge. Five tools are available to the connected agent:
+The package registers an MCP server on your Laravel application over HTTP (Streamable HTTP transport) and/or a local stdio bridge. Every tool is individually enable/disable-able: enable only what you want via `config('agent-mcp.tools.<name>')` in your published `config/agent-mcp.php`. Sensitive tools are off by default; the operator opts in.
+
+### v0.2.0 core tools
 
 | Tool | What it does | Default state |
 |------|-------------|---------------|
@@ -13,6 +15,50 @@ The package registers an MCP server on your Laravel application over HTTP (Strea
 | `db_raw_select` | Accepts a raw SQL SELECT, validates it via an allowlist parser, auto-applies a row limit, then executes on the read-only connection | Enabled |
 | `read_logs` | Tails the configured log channel, with an optional level filter and output redaction | Enabled |
 | `run_artisan` | Runs an artisan command from an explicit allowlist | Disabled by default; opt-in required |
+
+### v0.3.0 investigation tools
+
+Twenty additional read-only investigation tools grouped into four domains. Enable only what you want; sensitive tools are off by default.
+
+#### Queue
+
+| Tool | What it does | Default state |
+|------|-------------|---------------|
+| `queue_backlog` | Per-connection/queue pending job counts. Wraps `size()` per driver; database driver also counts strict-pending rows. | Enabled |
+| `queue_failed_jobs` | Summary counts and per-row details (job class, exception first line, failed\_at) from the failed jobs table. Raw payload is never emitted. | Enabled |
+| `horizon_status` | Horizon workload, metrics, and supervisor state. Returns `{available:false}` when Horizon is not installed. | Enabled (availability-gated) |
+
+#### Database health
+
+| Tool | What it does | Default state |
+|------|-------------|---------------|
+| `db_index_health` | Index list per table; PG adds unused-index detection (via `pg_stat_user_indexes`) and seq-scan advisory; MySQL uses `information_schema.STATISTICS`; SQLite uses `pragma_index_list`. | Enabled |
+| `db_missing_fk_indexes` | Finds foreign-key columns without a covering index. PG and MySQL give definitive results; SQLite result is heuristic (labelled). | Enabled |
+| `db_table_sizes` | Row counts and storage sizes per table. PG uses `pg_total_relation_size` + dead-tuple stats; MySQL uses `information_schema.TABLES` (estimates); SQLite probes `dbstat` then degrades gracefully. | Enabled |
+| `migrations_status` | Reads the `migrations` table (ran list + batches). Pending detection requires the filesystem and is not performed by this tool. | Enabled |
+| `db_slow_queries` | Top queries by mean execution time. PG requires `pg_stat_statements`; MySQL requires `performance_schema`. Returns `{available:false}` when the extension/schema is absent. | **Disabled by default** |
+| `db_active_locks` | Blocked/blocking queries and held locks at the moment of the call (point-in-time). PG uses `pg_locks + pg_stat_activity`; MySQL uses `information_schema.PROCESSLIST + performance_schema`. Returns `{available:false}` on SQLite. | **Disabled by default** |
+
+#### Cache
+
+| Tool | What it does | Default state |
+|------|-------------|---------------|
+| `cache_status` | Cache store config, optimization state (config/routes/events cached), opcache summary, and a `session_overlap_risk` flag when session and cache share the same Redis connection. | Enabled |
+| `cache_inspect` | Metadata (exists, TTL, value type) for a given cache key. The raw value is returned only when `cache.allow_value_read=true` AND the key does not match the key-name block-list; otherwise it is `[REDACTED]`. | Enabled (raw value gated) |
+| `cache_keys` | Lists cache keys with TTLs. Database driver queries the cache table; Redis uses SCAN (never KEYS) and excludes the session prefix to prevent live session IDs from leaking. | **Disabled by default** |
+
+#### App introspection
+
+| Tool | What it does | Default state |
+|------|-------------|---------------|
+| `list_routes` | All registered routes with methods, URI, name, controller, middleware (raw + resolved), and filters (`method`, `uri_prefix`, `name_pattern`, `middleware`, `exclude_middleware`). Middleware names only; no signed-route keys. | Enabled |
+| `inspect_route` | Deep dive on a single route (by name or URI): same shape as `list_routes` plus defaults. | Enabled |
+| `app_about` | Application versions, environment, debug flag, maintenance state, cache/driver/extension summary. Mirrors `php artisan about`. | Enabled |
+| `schedule_list` | All scheduled events: cron expression, command summary, next run time, flags (withoutOverlapping, onOneServer, etc.). | Enabled |
+| `event_list` | All registered event listeners including wildcards. Classifies string, Closure (file:line), and `[class, method]` listeners; flags `ShouldQueue` and `ShouldBroadcast` implementors. | Enabled |
+| `storage_info` | Filesystem disk config (driver, root, visibility) with credentials (`key/secret/password/token`) stripped; symlink map with liveness check. | Enabled |
+| `env_keys` | Names of all process environment variables (`array_keys($_ENV)`). Values are never returned. | Enabled |
+| `config_inspect` | Config key tree with types by default. Values are returned only when `reveal_values=true` AND the dot-path is in `config_inspect.safe_list` AND not matched by the block-list. The block-list always wins, even with explicit opt-in. | **Disabled by default** |
 
 Every tool call is audited and run through best-effort output redaction. DB tools access a read-only connection (code-enforced; a dedicated readonly DB user is strongly recommended).
 
@@ -104,6 +150,35 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ```
 
 Do NOT add the role to `pg_read_server_files` (it allows arbitrary file reads via `COPY ... FROM` and `pg_read_file()`). Do NOT grant `COPY` or `lo_*` (large object) privileges. Do NOT add the role to `pg_execute_server_program`.
+
+#### Additional grants for full DB-health visibility (PostgreSQL)
+
+The `db_slow_queries` and `db_active_locks` tools query `pg_stat_statements` and `pg_stat_activity`/`pg_locks`. These views require elevated privileges beyond the base `SELECT` grant above. For full visibility, grant the built-in monitoring roles:
+
+```sql
+GRANT pg_monitor TO agent_readonly;
+-- or, if your PostgreSQL version does not have pg_monitor (pre-10):
+GRANT pg_read_all_stats TO agent_readonly;
+```
+
+`pg_monitor` covers `pg_stat_activity`, `pg_stat_replication`, `pg_stat_ssl`, and `pg_stat_gssapi`. `pg_read_all_stats` covers `pg_stat_activity` and `pg_statistic`. Without these grants, `db_active_locks` and `db_slow_queries` return partial or empty results.
+
+**Point-in-time caveat**: `db_active_locks` reflects the lock state at the exact instant the query runs. A lock that existed before the call may be gone by the time you read the output. Use the result as a snapshot, not a continuous view.
+
+**Privilege-dependent partial results**: if the readonly role lacks `pg_monitor`/`pg_read_all_stats`, `db_slow_queries` may return rows with `NULL` query text, and `db_active_locks` may omit rows visible only to superusers. Both tools note this in their output.
+
+**`pg_stat_statements` must be enabled**: `db_slow_queries` on PostgreSQL detects the extension via `pg_extension` at call time and returns `{available:false, reason:"pg_stat_statements not enabled"}` when it is absent. Enable it in `postgresql.conf` (`shared_preload_libraries = 'pg_stat_statements'`) and restart; the tool then works without further config.
+
+#### Additional grants for full DB-health visibility (MySQL)
+
+`db_slow_queries` queries `performance_schema.events_statements_summary_by_digest`. The readonly user must have access to `performance_schema`:
+
+```sql
+GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Without this grant, `db_slow_queries` returns `{available:false}` on MySQL.
 
 ### SQLite
 
@@ -242,7 +317,30 @@ After publishing, `config/agent-mcp.php` contains the following keys:
 | `tools.db_raw_select` | `true` | Enable/disable the `db_raw_select` tool. |
 | `tools.read_logs` | `true` | Enable/disable the `read_logs` tool. |
 | `tools.run_artisan` | `false` | Enable/disable `run_artisan`. Off by default; configure `artisan.allowlist` before enabling. |
+| `tools.queue_backlog` | `true` | Enable/disable `queue_backlog`. |
+| `tools.queue_failed_jobs` | `true` | Enable/disable `queue_failed_jobs`. |
+| `tools.horizon_status` | `true` | Enable/disable `horizon_status`. Returns `{available:false}` automatically when Horizon is not installed. |
+| `tools.db_index_health` | `true` | Enable/disable `db_index_health`. |
+| `tools.db_missing_fk_indexes` | `true` | Enable/disable `db_missing_fk_indexes`. |
+| `tools.db_table_sizes` | `true` | Enable/disable `db_table_sizes`. |
+| `tools.migrations_status` | `true` | Enable/disable `migrations_status`. |
+| `tools.db_slow_queries` | `false` | Enable/disable `db_slow_queries`. Off by default; requires `pg_stat_statements` (PG) or `performance_schema` (MySQL). |
+| `tools.db_active_locks` | `false` | Enable/disable `db_active_locks`. Off by default; point-in-time snapshot; requires `pg_monitor` or equivalent for full PG visibility. |
+| `tools.cache_status` | `true` | Enable/disable `cache_status`. |
+| `tools.cache_inspect` | `true` | Enable/disable `cache_inspect`. Raw value delivery is separately gated by `cache.allow_value_read`. |
+| `tools.cache_keys` | `false` | Enable/disable `cache_keys`. Off by default; excluded session-prefix keys to avoid leaking session IDs. |
+| `tools.list_routes` | `true` | Enable/disable `list_routes`. |
+| `tools.inspect_route` | `true` | Enable/disable `inspect_route`. |
+| `tools.app_about` | `true` | Enable/disable `app_about`. |
+| `tools.schedule_list` | `true` | Enable/disable `schedule_list`. |
+| `tools.event_list` | `true` | Enable/disable `event_list`. |
+| `tools.storage_info` | `true` | Enable/disable `storage_info`. Disk credentials are stripped from the output; root paths are reported as-is. |
+| `tools.env_keys` | `true` | Enable/disable `env_keys`. Emits key names only; values are never returned. |
+| `tools.config_inspect` | `false` | Enable/disable `config_inspect`. Off by default; exposes the full config key tree. Values require explicit opt-in plus safe-list. |
 | `artisan.allowlist` | `[]` | Exact command names the agent may run. Empty array means the tool is effectively off regardless of the tool flag. Substring matching and wildcards are not supported. |
+| `cache.allow_value_read` | `false` | When `true`, `cache_inspect` may return a raw cached value if the key also passes the key-name block-list. Default `false` keeps raw values gated off. Set via env `AGENT_MCP_CACHE_ALLOW_VALUE_READ`. |
+| `config_inspect.block_list` | (see config) | Dot-path substring tokens that unconditionally redact a config value. Defaults cover `password`, `passwd`, `secret`, `key`, `token`, `auth`, `credential`, `private`, `dsn`, `url`, `cipher`, `salt`, `cert`, `pass`, `webhook`, `client_secret`. The block-list always wins over `safe_list`. |
+| `config_inspect.safe_list` | `[]` | Exact dot-paths whose values `config_inspect` is allowed to reveal when `reveal_values=true` and the path is not block-listed. Empty by default; the operator must explicitly add paths here. |
 | `query.max_rows` | `100` | Upper bound on rows returned by `db_query`; auto-applied as LIMIT on `db_raw_select` queries that omit one. |
 | `query.statement_timeout_ms` | `5000` | Per-statement execution cap applied at the DB session layer (MySQL: `max_execution_time`, PostgreSQL: `statement_timeout`, SQLite: `query_only` pragma). |
 | `logs.channel` | `null` | Logging channel whose file `read_logs` tails. Null resolves the active default channel at runtime. |
@@ -270,6 +368,15 @@ The read-only guarantee rests on multiple layers:
 2. Per-engine session hardening (see above) applies an engine-level read-only flag or timeout on every resolved connection.
 3. On the default-connection fallback path, the package clones the default connection config into an ephemeral `agent-mcp-readonly` connection and hardens the clone only, so the app's shared default connection is never mutated.
 4. A dedicated readonly DB user (strongly recommended) provides an independent, grant-level enforcement boundary that protects against application-layer bugs.
+
+### v0.3.0 investigation tools: operator opt-in model
+
+The twenty new investigation tools are read-only by design. A number of them expose information that may be sensitive in your environment: config values, env key names, cache data, slow-query text, active lock holders, and storage disk layout. The security model for these tools has two layers:
+
+1. **Per-tool toggle**: every new tool is individually gated by its `tools.*` config flag. Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`) default to off. Enable only the tools you actually need for your agent use case.
+2. **Value gating before redaction**: for tools that can return values (primarily `config_inspect` and `cache_inspect`), value delivery is gated first by an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then by a block-list that unconditionally redacts known-sensitive dot-paths (`url`, `dsn`, `key`, `password`, `secret`, and more). Output redaction runs after these gates as a final net, not as the primary guard. Redaction alone is never sufficient.
+
+Optional backends (`horizon_status`, `db_slow_queries` PG path, Redis paths in `cache_keys`) are detect-then-use: the tool interrogates whether the backend is available at call time and returns `{available:false}` when it is not. No exception is thrown; no package-level hard dependency is added.
 
 ### Redaction is best-effort, not a guarantee
 
