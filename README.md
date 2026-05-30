@@ -19,8 +19,9 @@ Every tool call is ability-gated, audited, and run through best-effort output re
 ## Requirements
 
 - PHP `^8.3`
-- Laravel `11` or `12`
-- `laravel/mcp` `>=0.7 <0.8` (pre-1.0, pinned; see [Security model](#security-model) for the pin rationale)
+- Laravel `11`, `12`, or `13`
+- `laravel/mcp` `>=0.6 <0.8` (pre-1.0, constrained; see [Security model](#security-model) for the rationale)
+- `laravel/sanctum` `^4.0` is optional: it backs the default authentication and authorizer. A host that authenticates differently does not need it (see [Custom authentication](#custom-authentication-non-sanctum-hosts)).
 
 ## Installation
 
@@ -137,6 +138,39 @@ $token = $user->createToken('agent-mcp', ['agent-mcp:read', 'agent-mcp:artisan']
 ```
 
 **Scope the token tightly.** The token ability is part of the authorization boundary. A token with unneeded abilities widens the attack surface. Create a dedicated token for the agent, do not reuse a general-purpose token.
+
+## Custom authentication (non-Sanctum hosts)
+
+Sanctum is the default, not a requirement. The package separates the two concerns:
+
+- **Authentication** (who the caller is) is the route middleware's job. Override `agent-mcp.middleware` to use your own guard or token middleware instead of `auth:sanctum`:
+
+  ```php
+  'middleware' => ['your-token-middleware', 'throttle:agent-mcp'],
+  ```
+
+- **Authorization** (whether that caller holds a tool's ability) goes through the `Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools` contract. The default `SanctumTokenAuthorizer` checks Sanctum token abilities. Bind your own to authorize against Passport scopes, a custom token model, or any other scheme:
+
+  ```php
+  // config/agent-mcp.php
+  'authorizer' => App\Mcp\PassportScopeAuthorizer::class,
+  ```
+
+  ```php
+  use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
+  use Illuminate\Contracts\Auth\Authenticatable;
+
+  class PassportScopeAuthorizer implements AuthorizesAgentTools
+  {
+      public function authorizes(?Authenticatable $user, string $ability): bool
+      {
+          // Fail closed: deny null users and empty abilities.
+          return $user !== null && $ability !== '' && $user->tokenCan($ability);
+      }
+  }
+  ```
+
+  The contract MUST fail closed (deny a null user, an empty ability, or any credential it cannot confirm). The tool's `handle()` always calls the authorizer authoritatively, so it is the single ability boundary regardless of which auth package the host uses.
 
 ## Client setup
 

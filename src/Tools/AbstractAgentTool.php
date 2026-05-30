@@ -5,14 +5,13 @@ declare(strict_types=1);
 namespace Anilcancakir\LaravelAgentMcp\Tools;
 
 use Anilcancakir\LaravelAgentMcp\Auditing\AuditLogger;
+use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Connection;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
-use Laravel\Sanctum\Contracts\HasApiTokens;
-use Laravel\Sanctum\TransientToken;
 
 /**
  * Shared base for every agent MCP tool: the authorization hub plus the common
@@ -71,8 +70,10 @@ abstract class AbstractAgentTool extends Tool
      *      does not trust that: it re-checks rather than assuming the middleware
      *      ran (independent of the transport / request object).
      *   2. The tool is disabled in config('agent-mcp.tools.<name>').
-     *   3. The principal is not a Sanctum token holder, or its token lacks the
-     *      required ability.
+     *   3. The configured authorizer (AuthorizesAgentTools) denies the required
+     *      ability. The default Sanctum authorizer fails closed on an empty ability,
+     *      a non-token principal, or a session TransientToken; a host that uses a
+     *      different auth package binds its own authorizer via config.
      *
      * Denials are intentionally generic: they never echo the ability string or
      * config key, to avoid leaking the authorization surface to the agent.
@@ -89,27 +90,10 @@ abstract class AbstractAgentTool extends Tool
             return Response::error('This tool is disabled.');
         }
 
-        $ability = $this->resolvedAbility();
-
-        // Fail closed on a misconfigured ability. An empty ability string would be
-        // granted by a wildcard ('*') Sanctum token, so a missing abilities config key
-        // must DENY, never silently widen access.
-        if ($ability === '') {
-            return Response::error('This action is unauthorized.');
-        }
-
-        if (! $user instanceof HasApiTokens) {
-            return Response::error('This action is unauthorized.');
-        }
-
-        // The agent must present a scoped personal access token. A first-party session
-        // credential resolves to a TransientToken whose can() returns true for every
-        // ability, which would bypass ability scoping entirely; reject it explicitly.
-        if ($user->currentAccessToken() instanceof TransientToken) {
-            return Response::error('This action is unauthorized.');
-        }
-
-        if (! $user->tokenCan($ability)) {
+        // The configured authorizer is the single ability boundary. It fails closed on
+        // an empty ability or a credential it cannot confirm carries the ability, so
+        // a misconfigured ability key or a session credential can never widen access.
+        if (! $this->authorizer()->authorizes($user, $this->resolvedAbility())) {
             return Response::error('This action is unauthorized.');
         }
 
@@ -117,10 +101,10 @@ abstract class AbstractAgentTool extends Tool
     }
 
     /**
-     * Best-effort registration visibility (NOT a security boundary). Hides the
-     * tool when it is disabled in config, or when the current token is reachable
-     * and lacks the required ability. When no user is reachable at registration
-     * time, the tool stays visible and handle() remains the authoritative gate.
+     * Best-effort registration visibility (NOT a security boundary). Hides the tool
+     * when it is disabled in config, or when a user is reachable at registration time
+     * and the configured authorizer denies the ability. When no user is reachable, the
+     * tool stays visible and handle() remains the authoritative gate.
      */
     public function shouldRegister(): bool
     {
@@ -128,26 +112,13 @@ abstract class AbstractAgentTool extends Tool
             return false;
         }
 
-        // Mirror authorize()'s fail-closed checks so registration UX never advertises a
-        // tool the authoritative gate would deny: an unresolvable ability or a session
-        // (TransientToken) principal hides the tool here too.
-        $ability = $this->resolvedAbility();
-
-        if ($ability === '') {
-            return false;
-        }
-
         $user = $this->user();
 
-        if ($user instanceof HasApiTokens) {
-            if ($user->currentAccessToken() instanceof TransientToken) {
-                return false;
-            }
-
-            return $user->tokenCan($ability);
+        if ($user === null) {
+            return true;
         }
 
-        return true;
+        return $this->authorizer()->authorizes($user, $this->resolvedAbility());
     }
 
     /**
@@ -178,6 +149,16 @@ abstract class AbstractAgentTool extends Tool
     protected function readonly(): Connection
     {
         return $this->connectionResolver->connection();
+    }
+
+    /**
+     * The configured ability authorizer. The service provider binds it from
+     * config('agent-mcp.authorizer') (default: SanctumTokenAuthorizer); resolving it
+     * per call lets a host swap the binding without reconstructing the tool.
+     */
+    protected function authorizer(): AuthorizesAgentTools
+    {
+        return app(AuthorizesAgentTools::class);
     }
 
     /**

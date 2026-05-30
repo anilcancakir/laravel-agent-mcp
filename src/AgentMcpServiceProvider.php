@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Anilcancakir\LaravelAgentMcp;
 
+use Anilcancakir\LaravelAgentMcp\Authorization\SanctumTokenAuthorizer;
 use Anilcancakir\LaravelAgentMcp\Commands\InstallCommand;
+use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -41,6 +43,15 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         // app that has not discovered it yet) can resolve Mcp::web()/Mcp::local() and
         // the injected Laravel\Mcp\Request. register() is idempotent.
         $this->app->register(McpServiceProvider::class);
+
+        // Bind the pluggable ability authorizer from config (default: the Sanctum
+        // token authorizer). A host without Sanctum points config('agent-mcp.authorizer')
+        // at its own implementation, so the tools carry no hard auth-package dependency.
+        $this->app->bind(AuthorizesAgentTools::class, function ($app): AuthorizesAgentTools {
+            $class = config('agent-mcp.authorizer', SanctumTokenAuthorizer::class);
+
+            return $app->make($class);
+        });
     }
 
     public function packageBooted(): void

@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentServer;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubAgentTool;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubNoopRegisterTool;
 use Anilcancakir\LaravelAgentMcp\Tests\Stubs\StubTokenUser;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Sanctum\TransientToken;
@@ -135,6 +137,28 @@ it('denies in handle() for a session (TransientToken) principal even with the ab
     StubAgentServer::actingAs($user)
         ->tool(StubAgentTool::class, [])
         ->assertHasErrors();
+});
+
+it('delegates the ability decision to a host-bound custom authorizer (auth-agnostic seam)', function (): void {
+    // A host without Sanctum binds its own authorizer. The tool must defer to it:
+    // a user the default Sanctum authorizer path would reject is allowed here because
+    // the custom authorizer grants on its own rule. Proves the package is not bound to
+    // any one auth package.
+    app()->bind(AuthorizesAgentTools::class, fn (): AuthorizesAgentTools => new class implements AuthorizesAgentTools
+    {
+        public function authorizes(?Authenticatable $user, string $ability): bool
+        {
+            return $user !== null && $ability === 'agent-mcp:read';
+        }
+    });
+
+    config()->set('agent-mcp.audit.enabled', false);
+
+    $user = new StubTokenUser(id: 1, abilities: []);
+
+    StubAgentServer::actingAs($user)
+        ->tool(StubAgentTool::class, [])
+        ->assertOk();
 });
 
 it('hides the tool via shouldRegister when disabled in config (best-effort UX)', function (): void {

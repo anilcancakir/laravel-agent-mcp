@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Anilcancakir\LaravelAgentMcp\Authorization\SanctumTokenAuthorizer;
 
 return [
 
@@ -98,6 +99,22 @@ return [
         'read' => 'agent-mcp:read',
         'artisan' => 'agent-mcp:artisan',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tool authorizer
+    |--------------------------------------------------------------------------
+    |
+    | The class (implementing Anilcancakir\LaravelAgentMcp\Contracts\AuthorizesAgentTools)
+    | that decides whether the authenticated principal holds a tool's required
+    | ability. The default authorizes via Sanctum personal-access-token abilities.
+    | A host that authenticates differently (Passport scopes, a custom token guard)
+    | binds its own implementation here; the package then carries no hard dependency
+    | on Sanctum. Authentication itself is the route middleware's job (see above).
+    |
+    */
+
+    'authorizer' => SanctumTokenAuthorizer::class,
 
     /*
     |--------------------------------------------------------------------------
