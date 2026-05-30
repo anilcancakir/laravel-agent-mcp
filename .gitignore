@@ -1,0 +1,11 @@
+/vendor
+composer.lock
+.phpunit.result.cache
+.phpunit.cache
+build
+coverage
+.php-cs-fixer.cache
+.pint.cache
+.DS_Store
+
+.ac/
