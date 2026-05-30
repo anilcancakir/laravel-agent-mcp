@@ -127,6 +127,7 @@ return [
     */
 
     'tools' => [
+        // --- v0.2.0 tools (unchanged) ---
         'db_schema' => true,
         'db_query' => true,
         'db_raw_select' => true,
@@ -136,6 +137,50 @@ return [
         // An empty allowlist with this flag true is also safe (handle() denies),
         // but the default-off state signals intent clearly to the operator.
         'run_artisan' => false,
+
+        // --- v0.3.0 investigation tools ---
+
+        // Queue: queue sizes + failed-job summaries are safe read-only reads.
+        'queue_backlog' => true,
+        'queue_failed_jobs' => true,
+
+        // Horizon: availability-gated; inert when Horizon is not installed.
+        'horizon_status' => true,
+
+        // Database health: catalog reads over the readonly connection.
+        'db_index_health' => true,
+        'db_missing_fk_indexes' => true,
+        'db_table_sizes' => true,
+        'migrations_status' => true,
+
+        // Privileged DB tools: require pg_monitor/pg_read_all_stats (PostgreSQL)
+        // or performance_schema access (MySQL). Disabled by default so the
+        // operator explicitly grants the necessary DB privileges before enabling.
+        'db_slow_queries' => false,
+        'db_active_locks' => false,
+
+        // Cache: metadata reads (status, key inspection) are safe by default.
+        'cache_status' => true,
+        'cache_inspect' => true,
+
+        // cache_keys can expose live session IDs when the session and cache share
+        // a Redis store. Disabled by default; enable only after verifying the
+        // session prefix exclusion covers your deployment.
+        'cache_keys' => false,
+
+        // App introspection: read-only framework-level reflection.
+        'list_routes' => true,
+        'inspect_route' => true,
+        'app_about' => true,
+        'schedule_list' => true,
+        'event_list' => true,
+        'storage_info' => true,
+        'env_keys' => true,
+
+        // config_inspect returns arbitrary application config values and can
+        // expose secrets not covered by the block_list. Disabled by default;
+        // review block_list and safe_list before enabling.
+        'config_inspect' => false,
     ],
 
     /*
@@ -158,6 +203,64 @@ return [
 
     'artisan' => [
         'allowlist' => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cache inspection settings
+    |--------------------------------------------------------------------------
+    |
+    | allow_value_read: when false (default) the cache_inspect tool returns only
+    | metadata (TTL, type) and never the raw cached value. Set to true AND add
+    | an explicit safe_list entry via config_inspect to allow value reads on
+    | selected keys. Raw values may contain serialized objects or secrets; this
+    | flag exists so the operator acknowledges that risk before opting in.
+    |
+    */
+
+    'cache' => [
+        'allow_value_read' => (bool) env('AGENT_MCP_CACHE_ALLOW_VALUE_READ', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Config inspection access control
+    |--------------------------------------------------------------------------
+    |
+    | block_list: case-insensitive substring tokens matched against the full
+    | dot-path of a config leaf. Any path that contains one of these tokens is
+    | redacted to [REDACTED] even when the caller passes reveal_values=true.
+    | Includes DSN/URL tokens because database/redis connection strings embed
+    | credentials (user:pass@host). This list is the primary secret gate;
+    | OutputRedactor is the last net only.
+    |
+    | safe_list: dot-paths the operator has explicitly reviewed and deems safe
+    | to expose. A leaf value is returned only when reveal_values=true AND the
+    | full dot-path is in safe_list AND the path is NOT matched by block_list.
+    | Default is empty so no values are revealed until the operator opts in.
+    |
+    */
+
+    'config_inspect' => [
+        'block_list' => [
+            'password',
+            'passwd',
+            'secret',
+            'key',
+            'token',
+            'auth',
+            'credential',
+            'private',
+            'dsn',
+            'url',
+            'cipher',
+            'salt',
+            'cert',
+            'pass',
+            'webhook',
+            'client_secret',
+        ],
+        'safe_list' => [],
     ],
 
     /*

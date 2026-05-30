@@ -76,3 +76,87 @@ it('defaults logs channel to null so the active channel is resolved at runtime',
     expect(config('agent-mcp.logs.channel'))->toBeNull();
     expect(config('agent-mcp.logs.max_lines'))->toBe(200);
 });
+
+// v0.3.0 investigation tools: per-tool flags
+
+it('enables safe read-only investigation tools by default', function (): void {
+    // Queue
+    expect(config('agent-mcp.tools.queue_backlog'))->toBeTrue();
+    expect(config('agent-mcp.tools.queue_failed_jobs'))->toBeTrue();
+    expect(config('agent-mcp.tools.horizon_status'))->toBeTrue();
+
+    // Database health
+    expect(config('agent-mcp.tools.db_index_health'))->toBeTrue();
+    expect(config('agent-mcp.tools.db_missing_fk_indexes'))->toBeTrue();
+    expect(config('agent-mcp.tools.db_table_sizes'))->toBeTrue();
+    expect(config('agent-mcp.tools.migrations_status'))->toBeTrue();
+
+    // Cache
+    expect(config('agent-mcp.tools.cache_status'))->toBeTrue();
+    expect(config('agent-mcp.tools.cache_inspect'))->toBeTrue();
+
+    // App introspection
+    expect(config('agent-mcp.tools.list_routes'))->toBeTrue();
+    expect(config('agent-mcp.tools.inspect_route'))->toBeTrue();
+    expect(config('agent-mcp.tools.app_about'))->toBeTrue();
+    expect(config('agent-mcp.tools.schedule_list'))->toBeTrue();
+    expect(config('agent-mcp.tools.event_list'))->toBeTrue();
+    expect(config('agent-mcp.tools.storage_info'))->toBeTrue();
+    expect(config('agent-mcp.tools.env_keys'))->toBeTrue();
+});
+
+it('disables sensitive investigation tools by default so the operator opts in', function (): void {
+    // Privileged DB tools require pg_monitor/pg_read_all_stats or performance_schema grants.
+    expect(config('agent-mcp.tools.db_slow_queries'))->toBeFalse();
+    expect(config('agent-mcp.tools.db_active_locks'))->toBeFalse();
+
+    // cache_keys can leak live session IDs from a shared Redis store.
+    expect(config('agent-mcp.tools.cache_keys'))->toBeFalse();
+
+    // config_inspect can expose arbitrary application secrets.
+    expect(config('agent-mcp.tools.config_inspect'))->toBeFalse();
+});
+
+it('keeps the existing v0.2.0 tool flags unchanged', function (): void {
+    expect(config('agent-mcp.tools.db_schema'))->toBeTrue();
+    expect(config('agent-mcp.tools.db_query'))->toBeTrue();
+    expect(config('agent-mcp.tools.db_raw_select'))->toBeTrue();
+    expect(config('agent-mcp.tools.read_logs'))->toBeTrue();
+    expect(config('agent-mcp.tools.run_artisan'))->toBeFalse();
+});
+
+it('disables cache value reads by default so raw cached data is never exposed without opt-in', function (): void {
+    expect(config('agent-mcp.cache.allow_value_read'))->toBeFalse();
+});
+
+it('ships a config_inspect block_list covering common secret key patterns', function (): void {
+    $blockList = config('agent-mcp.config_inspect.block_list');
+
+    expect($blockList)->toBeArray()->not()->toBeEmpty();
+
+    // Base secret tokens.
+    expect($blockList)->toContain('password');
+    expect($blockList)->toContain('passwd');
+    expect($blockList)->toContain('secret');
+    expect($blockList)->toContain('key');
+    expect($blockList)->toContain('token');
+    expect($blockList)->toContain('auth');
+    expect($blockList)->toContain('credential');
+    expect($blockList)->toContain('private');
+
+    // DSN/connection-string tokens (embed user:pass@host).
+    expect($blockList)->toContain('dsn');
+    expect($blockList)->toContain('url');
+
+    // Additional sensitive patterns.
+    expect($blockList)->toContain('cipher');
+    expect($blockList)->toContain('salt');
+    expect($blockList)->toContain('cert');
+    expect($blockList)->toContain('pass');
+    expect($blockList)->toContain('webhook');
+    expect($blockList)->toContain('client_secret');
+});
+
+it('ships an empty config_inspect safe_list so no values are revealed without explicit operator configuration', function (): void {
+    expect(config('agent-mcp.config_inspect.safe_list'))->toBe([]);
+});
