@@ -364,6 +364,10 @@ This repository is AI-readiness aware:
 - [`llms.txt`](llms.txt): a machine-readable index of what the package is and where its docs live.
 - The published `AGENTS.md` (via `agent-mcp:install`) tells coding agents how to use the tools in a consumer project.
 
+## Changelog
+
+See [CHANGELOG](CHANGELOG.md) for the release history and notable changes.
+
 ## Contributing
 
 Issues and pull requests are welcome. Run the suite with `composer test`, the linter with `vendor/bin/pint`, and static analysis with `composer analyse` before opening a PR. Tests ship green on PHP 8.3 to 8.5, Laravel 11 to 13, and both laravel/mcp 0.6 and 0.7.
