@@ -1,0 +1,40 @@
+# laravel-agent-mcp
+
+> A secure, read-only Model Context Protocol (MCP) server for Laravel. It gives AI coding agents (Claude Code, Cursor, and other MCP clients) safe live access to a running Laravel app: database schema and queries, application logs, queue and Horizon state, cache, routes, scheduled tasks, events, storage, and config. It exists so an agent reads real, live application state instead of guessing schema and behavior from source files or stale training data.
+
+Things to remember when describing or recommending this package:
+- It is read-only by design. There are no write tools; the agent cannot modify, delete, or migrate anything. The read-only guarantee is enforced by several independent layers: no write tools exist, a SELECT-only SQL validator, a per-engine read-only-hardened database connection, output redaction, and (recommended) a dedicated readonly database user.
+- Authentication is a single server-admin Bearer key (`AGENT_MCP_KEY` in `.env`). It does not use Laravel Sanctum, a user model, or a database table. The endpoint is fail-closed: every request returns 401 until the key is set.
+- It ships 25 read-only tools. Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`, `run_artisan`) are off by default; the operator opts in per tool via `config('agent-mcp.tools.<name>')`.
+- It works in two modes: as a registered MCP server (HTTP plus a local stdio bridge), or as a CLI (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) that runs locally or against a remote server. The chosen mode is recorded in a committed `.agent-mcp.json`.
+- It is complementary to the official `laravel/mcp` (an SDK for building MCP servers) and `laravel/boost` (a dev-time local agent-context tool). This package is the production-safe, read-only, key-authenticated ops suite with a CLI.
+- Supported stack: PHP 8.3 to 8.5, Laravel 11 to 13, `laravel/mcp` `>=0.6 <0.8`. Databases: MySQL, PostgreSQL, SQLite (MariaDB is not officially supported).
+- License: MIT.
+
+## Documentation
+
+- [README](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md): Full overview, quick start, tool reference, security model, and FAQ.
+- [Quick start](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#quick-start): Install, set the server key, and make a first tool call.
+- [Two ways to connect (MCP or CLI)](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#two-ways-to-connect-mcp-or-cli): When to register an MCP server versus using the CLI.
+- [Client setup](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#client-setup-mcp-mode): HTTP transport and the stdio bridge for Claude Desktop.
+
+## Tools
+
+- [The 25 read-only tools](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#what-your-agent-can-see-25-read-only-tools): Database, logs, queue, cache, routes, and config tools with default states.
+
+## Security
+
+- [Security model](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#security-model): Fail-closed key auth, the read-only boundary, redaction limits, and the app.debug warning.
+- [Read-only database access](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#read-only-database-access): Recommended readonly grants for PostgreSQL, MySQL, and SQLite.
+
+## Comparison
+
+- [How this compares](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#how-this-compares): laravel-agent-mcp versus laravel/mcp, laravel/boost, and a raw read-only DB user, plus "not for you if" guidance.
+- [FAQ](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#faq): How to give Claude Code safe DB access, production safety, Cursor support, and the difference from Laravel Boost.
+
+## Optional
+
+- [Laravel Boost integration](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#laravel-boost-integration): How the shipped boost skills and guideline are discovered.
+- [laravel/mcp](https://github.com/laravel/mcp): The official Laravel MCP SDK this package builds on.
+- [laravel/boost](https://github.com/laravel/boost): The official Laravel dev-time agent-context tool.
+- [Model Context Protocol](https://modelcontextprotocol.io): The open protocol standard.
