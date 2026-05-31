@@ -64,6 +64,67 @@ echo '{"sql":"select count(*) as c from failed_jobs"}' | php artisan agent-mcp:c
 
 That is the whole loop: install, set one key, and the agent has safe live context. The next section explains the two ways to wire it into an agent client.
 
+### Agent guideline and skill injection
+
+When laravel-boost is not installed, `agent-mcp:install` injects the mode-tailored guideline directly into each selected agent's instruction file and copies the active-mode skill into each agent's skills directory.
+
+**What gets written**
+
+The guideline is wrapped in a managed marker block and inserted into the instruction file:
+
+```
+<laravel-agent-mcp-guidelines>
+... mode-correct guideline content ...
+</laravel-agent-mcp-guidelines>
+```
+
+The injection is idempotent: re-running replaces the existing block in place, preserving everything outside it. If the file already has an unbalanced or duplicated `<laravel-agent-mcp-guidelines>` marker set, the command aborts with a clear error and leaves the file untouched.
+
+The active-mode skill directory (`agent-mcp-investigation` for MCP mode, `agent-mcp-cli` for CLI mode) is written into each agent's skills path. On a mode switch, the previous mode's managed directory is removed and replaced with the new one. These directories are package-managed: they are overwritten on every re-run, so do not hand-edit them.
+
+**Agent selection**
+
+The installer targets the agents detected in the project by default (falling back to Claude Code when nothing is detected). You can override this:
+
+```bash
+# target specific agents by key
+php artisan agent-mcp:install --agents=claude_code,cursor
+
+# target all supported agents
+php artisan agent-mcp:install --agents=all
+```
+
+Supported agent keys and their paths:
+
+| Key | Guideline file | Skills dir |
+|-----|---------------|------------|
+| `claude_code` | `CLAUDE.md` | `.claude/skills` |
+| `cursor` | `AGENTS.md` | `.cursor/skills` |
+| `copilot` | `AGENTS.md` | `.github/skills` |
+| `junie` | `AGENTS.md` | `.junie/skills` |
+| `gemini` | `GEMINI.md` | `.agents/skills` |
+| `codex` | `AGENTS.md` | `.agents/skills` |
+| `opencode` | `AGENTS.md` | `.agents/skills` |
+| `amp` | `AGENTS.md` | `.agents/skills` |
+| `kiro` | `AGENTS.md` | `.kiro/skills` |
+| `antigravity` | `AGENTS.md` | `.agents/skills` |
+
+Agents that share a guideline file (`AGENTS.md`) or skill dir (`.agents/skills`) are written exactly once regardless of how many matching keys you select.
+
+In an interactive terminal without `--agents`, the installer presents a multiselect with the detected agents pre-selected.
+
+**Injection flags**
+
+```bash
+# skip injection entirely (no guideline or skill files are written)
+php artisan agent-mcp:install --no-inject
+
+# inject even when laravel-boost is installed
+php artisan agent-mcp:install --inject
+```
+
+When laravel-boost is installed, the command defers to boost by default (prints the `boost:install` / `boost:update --discover` next-step). Pass `--inject` to write the assets directly regardless. Pass `--no-inject` to always skip writing agent files.
+
 ## Two ways to connect: MCP or CLI
 
 You do not have to register one more MCP server if you do not want to. The package works in two modes, and the installer records your choice in a committed `.agent-mcp.json` so your team, CI, and laravel-boost all resolve the same setup.
@@ -298,6 +359,8 @@ The package ships boost-discoverable assets that `boost:install` and `boost:upda
 | `resources/boost/guidelines/core.blade.php` | Both (mode-branched) |
 
 Full mode-filtering (only the active mode's skill is injected) needs a boost version with `SKILL.blade.php` support. On older boost, both `SKILL.md` fallbacks install unfiltered (functional, not mode-tailored). Boost does not auto-wire third-party MCP servers ([laravel/boost#522](https://github.com/laravel/boost/issues/522)); bind the server via `agent-mcp:install` or `claude mcp add`.
+
+**Without boost:** `agent-mcp:install` injects the assets directly. See [Agent guideline and skill injection](#agent-guideline-and-skill-injection) above.
 
 ## How this compares
 
