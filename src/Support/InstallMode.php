@@ -4,6 +4,7 @@ namespace Anilcancakir\LaravelAgentMcp\Support;
 
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Single source of truth for the package install mode.
@@ -114,6 +115,8 @@ final class InstallMode
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
         );
 
-        File::put(self::path(), $payload);
+        if (File::put(self::path(), $payload) === false) {
+            throw new RuntimeException(sprintf('Unable to write the install mode file at %s.', self::path()));
+        }
     }
 }

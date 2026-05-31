@@ -4,7 +4,6 @@ namespace Anilcancakir\LaravelAgentMcp\Commands;
 
 use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
 use Illuminate\Console\Command;
-use InvalidArgumentException;
 
 /**
  * Two-mode setup command for laravel-agent-mcp.
@@ -108,18 +107,13 @@ class InstallCommand extends Command
      * Record the resolved mode to the committed .agent-mcp.json.
      *
      * Re-running with a different mode overwrites the file; the printed note makes
-     * that explicit. The mode was already validated in resolveMode(), so write()
-     * never throws here; the guard is defense in depth.
+     * that explicit. The mode was already validated in resolveMode(); a real write
+     * failure (e.g. a read-only project dir) propagates out of write() and aborts the
+     * command rather than reporting success.
      */
     private function recordMode(string $mode): void
     {
-        try {
-            InstallMode::write($mode);
-        } catch (InvalidArgumentException $exception) {
-            $this->error($exception->getMessage());
-
-            return;
-        }
+        InstallMode::write($mode);
 
         $this->line(sprintf('Recorded install mode [%s] in %s (commit this file).', $mode, InstallMode::path()));
         $this->line('Re-running with a different --mode overwrites it.');
