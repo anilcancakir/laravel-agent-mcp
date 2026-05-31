@@ -2,8 +2,17 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Commands;
 
+use Anilcancakir\LaravelAgentMcp\Support\AgentTarget;
+use Anilcancakir\LaravelAgentMcp\Support\GuidelineInjector;
 use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
+use Anilcancakir\LaravelAgentMcp\Support\SkillInstaller;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\File;
+use InvalidArgumentException;
+use RuntimeException;
+
+use function Laravel\Prompts\multiselect;
 
 /**
  * Two-mode setup command for laravel-agent-mcp.
@@ -29,7 +38,11 @@ use Illuminate\Console\Command;
 class InstallCommand extends Command
 {
     /** @var string */
-    protected $signature = 'agent-mcp:install {--mode= : The install mode to record (mcp or cli)}';
+    protected $signature = 'agent-mcp:install
+        {--mode= : The install mode to record (mcp or cli)}
+        {--agents= : Comma-separated agent keys to target, or "all"}
+        {--no-inject : Skip writing guideline/skill into agent files}
+        {--inject : Inject even when laravel-boost is installed}';
 
     /** @var string */
     protected $description = 'Record the install mode, publish the agent-mcp config and assets, then print mode-tailored setup instructions.';
@@ -65,9 +78,192 @@ class InstallCommand extends Command
         }
 
         $this->printDebugWarning();
-        $this->printBoostNextStep($mode);
+
+        // 4. Inject the guideline + skill directly when boost is absent (or --inject),
+        //    unless --no-inject. Otherwise defer to boost via the printed next-step.
+        $shouldInject = (! $this->boostIsInstalled() || $this->option('inject'))
+            && ! $this->option('no-inject');
+
+        if (! $shouldInject) {
+            if ($this->option('no-inject')) {
+                $this->line('Skipped guideline/skill injection (--no-inject).');
+                $this->newLine();
+            }
+
+            $this->printBoostNextStep($mode);
+
+            return self::SUCCESS;
+        }
+
+        return $this->injectAgentAssets($mode);
+    }
+
+    /**
+     * Render the active-mode guideline and inject it (plus the skill dir) into the
+     * selected agents, boost-independently.
+     *
+     * Returns FAILURE when the agent selection is invalid or when the guideline
+     * injector aborts on an unbalanced marker set; in the abort case the message is
+     * surfaced to stderr and no partial run is reported as success.
+     */
+    private function injectAgentAssets(string $mode): int
+    {
+        // 1. Resolve which agents to target (flag / interactive multiselect / detected default).
+        $targets = $this->resolveTargets();
+
+        if ($targets === null) {
+            return self::FAILURE;
+        }
+
+        // 2. Render the mode-correct guideline once; the blade reads the just-recorded mode.
+        $guideline = trim(Blade::render(File::get(dirname(__DIR__).'/../resources/boost/guidelines/core.blade.php')));
+
+        // 3. Dedupe shared guideline files (AGENTS.md) and skill dirs (.agents/skills) to unique paths.
+        $guidelineFiles = $this->uniquePaths(array_map(
+            fn (AgentTarget $target): string => base_path($target->guidelinePath),
+            $targets,
+        ));
+
+        $skillDirs = $this->uniquePaths(array_map(
+            fn (AgentTarget $target): string => base_path($target->skillPath),
+            $targets,
+        ));
+
+        // 4. Inject the guideline first; abort loudly (FAILURE, no success summary) on unbalanced markers.
+        try {
+            $writtenGuidelines = (new GuidelineInjector)->inject($guidelineFiles, $guideline);
+        } catch (RuntimeException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        $writtenSkills = SkillInstaller::install($skillDirs, $mode);
+
+        $this->printInjectionSummary($writtenGuidelines, $writtenSkills);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve the agent targets to write into.
+     *
+     * Precedence: --agents=all (every target), --agents=csv (validated keys),
+     * an interactive multiselect (default = detected agents or Claude Code), and
+     * finally a non-interactive default of the detected agents or Claude Code.
+     * Returns null when --agents carries an unknown key (the error is printed).
+     *
+     * @return AgentTarget[]|null
+     */
+    private function resolveTargets(): ?array
+    {
+        $given = $this->option('agents');
+
+        if ($given === 'all') {
+            return AgentTarget::all();
+        }
+
+        if ($given !== null && $given !== '') {
+            $keys = array_map(
+                fn (string $key): string => strtolower(trim($key)),
+                explode(',', $given),
+            );
+
+            try {
+                return AgentTarget::fromKeys($keys);
+            } catch (InvalidArgumentException $exception) {
+                $this->error($exception->getMessage());
+
+                return null;
+            }
+        }
+
+        if ($this->input->isInteractive()) {
+            return $this->promptForTargets();
+        }
+
+        return $this->detectedTargetsOrDefault();
+    }
+
+    /**
+     * Present an interactive multiselect of every target, pre-selecting the detected
+     * agents (or Claude Code when none are detected), and map the chosen keys back to
+     * AgentTarget instances.
+     *
+     * @return AgentTarget[]
+     */
+    private function promptForTargets(): array
+    {
+        $options = [];
+
+        foreach (AgentTarget::all() as $target) {
+            $options[$target->key] = $target->displayName;
+        }
+
+        $default = array_map(
+            fn (AgentTarget $target): string => $target->key,
+            $this->detectedTargetsOrDefault(),
+        );
+
+        /** @var array<int, string> $selected */
+        $selected = multiselect(
+            label: 'Which agents should receive the guideline and skill?',
+            options: $options,
+            default: $default,
+        );
+
+        return AgentTarget::fromKeys($selected);
+    }
+
+    /**
+     * The auto-detected agent targets, falling back to Claude Code when detection
+     * finds nothing, so a fresh project still receives the assets.
+     *
+     * @return AgentTarget[]
+     */
+    private function detectedTargetsOrDefault(): array
+    {
+        $detected = AgentTarget::detect();
+
+        return $detected === [] ? AgentTarget::fromKeys(['claude_code']) : $detected;
+    }
+
+    /**
+     * Collapse the given absolute paths to unique entries, preserving first-seen
+     * order, so agents that share a guideline file or skill dir resolve once.
+     *
+     * @param  array<int, string>  $paths
+     * @return array<int, string>
+     */
+    private function uniquePaths(array $paths): array
+    {
+        return array_values(array_unique($paths));
+    }
+
+    /**
+     * Print a concise summary of the guideline files and skill dirs written.
+     *
+     * @param  array<int, string>  $guidelineFiles
+     * @param  array<int, string>  $skillDirs
+     */
+    private function printInjectionSummary(array $guidelineFiles, array $skillDirs): void
+    {
+        $this->info('=== Injected agent assets ===');
+        $this->newLine();
+        $this->line('Guideline block written to:');
+
+        foreach ($guidelineFiles as $file) {
+            $this->line('  '.$file);
+        }
+
+        $this->newLine();
+        $this->line('Skill installed into:');
+
+        foreach ($skillDirs as $dir) {
+            $this->line('  '.$dir);
+        }
+
+        $this->newLine();
     }
 
     /**
