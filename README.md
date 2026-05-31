@@ -83,16 +83,78 @@ Every tool call is audited and run through best-effort output redaction. DB tool
 composer require anilcancakir/laravel-agent-mcp
 ```
 
-Run the install command to publish the config and agent assets and to get ready-to-paste client config blocks printed to your terminal:
+Run the install command to choose your integration mode and publish the config and agent assets:
 
 ```bash
 php artisan agent-mcp:install
+# Sail / Herd: vendor/bin/sail artisan agent-mcp:install
 ```
 
-This publishes:
-- `config/agent-mcp.php` (all configuration knobs, documented inline)
-- `AGENTS.md` (tool-usage guidance for the connected agent)
-- `.mcp.json.example` (ready-to-adapt client config)
+The command prompts you to pick a mode (default: `mcp`). To skip the prompt, pass `--mode` directly:
+
+```bash
+php artisan agent-mcp:install --mode=mcp
+php artisan agent-mcp:install --mode=cli
+```
+
+### Install modes
+
+#### MCP mode (default)
+
+Registers a full MCP server on your Laravel app and sets up the client configuration. This mode:
+
+- Publishes `config/agent-mcp.php`, `AGENTS.md`, and `.mcp.json.example`
+- Prints ready-to-paste `.mcp.json` blocks (HTTP transport + stdio bridge) and the `claude mcp add` one-liner
+- Activates the `agent-mcp-investigation` boost skill (schema, queries, logs, artisan investigation workflow)
+
+Use this mode when you want persistent, low-latency tool access across many turns of an interactive agent session.
+
+#### CLI mode
+
+No MCP server registration required. The package's artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly. This mode:
+
+- Publishes `config/agent-mcp.php` and `AGENTS.md`
+- Prints `agent-mcp:call` / `agent-mcp:tools` usage examples (local in-process + remote via `AGENT_MCP_URL`)
+- Activates the `agent-mcp-cli` boost skill (CLI workflow guidance)
+
+Use this mode for one-off calls, scripts, CI pipelines, or when you do not want to register an HTTP endpoint.
+
+### Recording the mode: `.agent-mcp.json`
+
+The install command writes a `.agent-mcp.json` file at the project root:
+
+```json
+{
+    "mode": "mcp",
+    "version": 1
+}
+```
+
+**Commit this file.** It records the chosen mode for the whole team, CI, and laravel-boost. When the file is absent (existing installs before v0.5.0), the package behaves as if `mode` is `mcp`, so upgrading is non-breaking.
+
+Re-running `agent-mcp:install --mode=cli` (or `--mode=mcp`) overwrites the file. The command notes when the mode changes.
+
+### After install: wire boost
+
+Run `boost:install` (or `boost:update --discover`) so laravel-boost injects the active mode's skill and guideline into your agent context:
+
+```bash
+php artisan boost:install
+# or, if boost is already installed:
+php artisan boost:update --discover
+# Sail / Herd:
+vendor/bin/sail artisan boost:install
+```
+
+See [Laravel Boost integration](#laravel-boost-integration) for details.
+
+### What is published
+
+| File | MCP mode | CLI mode |
+|------|----------|----------|
+| `config/agent-mcp.php` | Yes | Yes |
+| `AGENTS.md` | Yes | Yes |
+| `.mcp.json.example` | Yes | Yes (harmless if unused) |
 
 ## Mandatory: set the server key
 
@@ -319,20 +381,42 @@ you want persistent, low-latency tool access across many turns of an interactive
 
 ## Laravel Boost integration
 
-The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically:
+The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically. Which skill and which guideline branch are active depends on the mode recorded in `.agent-mcp.json` (written by `agent-mcp:install`).
 
-- `resources/boost/guidelines/core.blade.php`: an AI guideline explaining when and how to use each of the 5 MCP tools, the read-only model, and the `/agent-mcp` endpoint.
-- `resources/boost/skills/agent-mcp-investigation/SKILL.md`: an investigation workflow skill that walks an agent through schema inspection, read-only queries, log reading, and optional allowlisted artisan commands.
+| Asset | Active in |
+|-------|-----------|
+| `resources/boost/skills/agent-mcp-investigation/SKILL.blade.php` | MCP mode |
+| `resources/boost/skills/agent-mcp-cli/SKILL.blade.php` | CLI mode |
+| `resources/boost/guidelines/core.blade.php` | Both (mode-branched internally) |
 
-Run `boost:install` (or `boost:update --discover`) to pick these up:
+Run `boost:install` (or `boost:update --discover`) after `agent-mcp:install` to inject the active mode's skill and guideline:
 
 ```bash
 php artisan boost:install
 # or, if boost is already installed:
 php artisan boost:update --discover
+# Sail / Herd:
+vendor/bin/sail artisan boost:install
 ```
 
 **Boost does not auto-wire third-party MCP servers** (laravel/boost#522). The MCP binding must be done separately via `agent-mcp:install` or `claude mcp add` (see Client setup above).
+
+### Laravel Boost version note
+
+Full mode-filtering (only the active mode's skill is injected) requires the **boost v2.4.x line** that includes `SKILL.blade.php` support (PR #627). On older boost versions, both `SKILL.md` fallbacks are installed unfiltered (both skills active, guideline is the full superset). This is functional but not mode-tailored.
+
+To check your installed boost version:
+
+```bash
+composer show laravel/boost | grep versions
+```
+
+If you are on a pre-v2.4.x boost and want mode-filtering, upgrade boost first:
+
+```bash
+composer require laravel/boost:^2.4
+php artisan boost:update --discover
+```
 
 ## Custom authentication
 
