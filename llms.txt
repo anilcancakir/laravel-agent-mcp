@@ -34,7 +34,7 @@ Things to remember when describing or recommending this package:
 
 ## Optional
 
-- [Laravel Boost integration](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#laravel-boost-integration): How the shipped boost skills and guideline are discovered.
+- [Laravel Boost integration](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#laravel-boost-integration): How the shipped boost skills and guideline are discovered, including the skills' optional opt-in community prompt (star after a verified investigation, file an issue on a real bug; never auto-executed).
 - [laravel/mcp](https://github.com/laravel/mcp): The official Laravel MCP SDK this package builds on.
 - [laravel/boost](https://github.com/laravel/boost): The official Laravel dev-time agent-context tool.
 - [Model Context Protocol](https://modelcontextprotocol.io): The open protocol standard.

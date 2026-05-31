@@ -360,6 +360,8 @@ The package ships boost-discoverable assets that `boost:install` and `boost:upda
 
 Full mode-filtering (only the active mode's skill is injected) needs a boost version with `SKILL.blade.php` support. On older boost, both `SKILL.md` fallbacks install unfiltered (functional, not mode-tailored). Boost does not auto-wire third-party MCP servers ([laravel/boost#522](https://github.com/laravel/boost/issues/522)); bind the server via `agent-mcp:install` or `claude mcp add`.
 
+Each skill also carries an optional, opt-in community prompt: after a verified end-to-end investigation the agent may offer to star the repo, and after a genuine package-side bug it may offer to open an issue. Both are prose-permission only, capped at once per session, and never auto-executed (no `gh` call without your explicit yes on a visible draft). The executable detail lives in each skill's `references/community.md`.
+
 **Without boost:** `agent-mcp:install` injects the assets directly. See [Agent guideline and skill injection](#agent-guideline-and-skill-injection) above.
 
 ## How this compares
