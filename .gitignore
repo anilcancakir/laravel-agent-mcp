@@ -9,3 +9,4 @@ coverage
 .DS_Store
 
 .ac/
+.sync-agents-cache.json
