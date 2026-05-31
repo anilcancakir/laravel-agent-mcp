@@ -1,8 +1,26 @@
 {
     "name": "anilcancakir/laravel-agent-mcp",
-    "description": "Secure MCP server package for Laravel: DB schema/query, logs, and allowlisted artisan for authenticated LLM agents.",
+    "description": "Secure, read-only MCP (Model Context Protocol) server for Laravel. Give Claude Code, Cursor, and AI coding agents safe live access to your database, logs, queue, cache, routes, and config.",
     "type": "library",
     "license": "MIT",
+    "keywords": [
+        "laravel",
+        "mcp",
+        "model-context-protocol",
+        "ai-agent",
+        "claude",
+        "database",
+        "read-only",
+        "mcp-server",
+        "llm",
+        "artisan",
+        "logs",
+        "queue",
+        "cache",
+        "routes",
+        "config",
+        "devtools"
+    ],
     "require": {
         "php": "^8.3",
         "illuminate/contracts": "^11.0||^12.0||^13.0",
