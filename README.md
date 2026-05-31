@@ -267,6 +267,56 @@ Add to your `.mcp.json`:
 
 The `env` block is operator-set. The bridge never writes the key to stdout or stderr, and TLS verification is always on.
 
+## CLI usage (no MCP server required)
+
+If you only occasionally need these tools, you do not have to register an MCP server in your
+agent client. The package ships three artisan commands that call the tools directly from the
+shell. They honor the same per-tool enable flags, audit log, and best-effort redaction as the
+HTTP endpoint.
+
+- `php artisan agent-mcp:tools` lists the tools you can call (`--all` includes ones disabled
+  in config, flagged `enabled: false`).
+- `php artisan agent-mcp:schema <tool>` prints a tool's input schema.
+- `php artisan agent-mcp:call <tool> [<json>]` invokes a tool. Pass arguments as a JSON object
+  positionally or on STDIN; the JSON result prints to stdout (raw when piped, pretty on a
+  terminal, or force raw with `--raw`); diagnostics go to stderr; the exit code is non-zero on
+  a tool error.
+
+```bash
+php artisan agent-mcp:call db_schema '{"table":"users"}'
+echo '{"sql":"select count(*) as c from users"}' | php artisan agent-mcp:call db_raw_select
+php artisan agent-mcp:call app_about --raw | jq '.environment'
+```
+
+For a Sail or Herd project use the project's artisan form (for example
+`vendor/bin/sail artisan agent-mcp:call ...`).
+
+### Local vs remote mode
+
+By default the commands run the tool in-process against the current application (local mode).
+Set `AGENT_MCP_URL` (the remote `/agent-mcp` URL) and `AGENT_MCP_KEY` (the server key) to
+forward the call to a remote endpoint instead; remote mode is auto-selected when
+`AGENT_MCP_URL` is present, and `--local` / `--remote` force the choice. The key travels only
+in the Authorization header, never in command output.
+
+### CLI vs registering the MCP server
+
+Use the CLI for one-off calls, scripts, CI, or any context where the MCP server is not
+registered in the client. Register the MCP server (HTTP route or the stdio bridge above) when
+you want persistent, low-latency tool access across many turns of an interactive session.
+
+### CLI security notes
+
+- The local CLI runs without the server-admin key: shell access to the application is the
+  trust boundary. The master `agent-mcp.enabled` switch and the per-tool flags still apply.
+- Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`,
+  `run_artisan`) are off by default. When enabled, their CLI output can land in terminal
+  scrollback and shell history, which the key-guarded HTTP path does not expose. `agent-mcp:call`
+  refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`;
+  piping or redirecting is always allowed.
+- Do NOT add `agent-mcp:*` commands to the `run_artisan` allowlist; allowlisting the CLI itself
+  would let a tool re-invoke the CLI.
+
 ## Laravel Boost integration
 
 The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically:

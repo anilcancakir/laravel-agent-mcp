@@ -83,3 +83,17 @@ be explicitly enabled.
   for `cache_inspect` or `cache_keys`.
 - `config_inspect`, `db_slow_queries`, `db_active_locks`, and `cache_keys` are off
   by default. Do not assume they are available; treat a denial as expected.
+
+## CLI alternative (no MCP server)
+
+When the agent-mcp MCP server is not registered, you can call the same read-only tools
+from the shell with artisan (use the project's artisan form, for example
+`vendor/bin/sail artisan` for Sail):
+
+- `php artisan agent-mcp:tools` lists the available tools (`--all` includes disabled ones).
+- `php artisan agent-mcp:schema <tool>` shows a tool's input schema.
+- `php artisan agent-mcp:call <tool> '<json>'` invokes a tool (JSON args positionally or on
+  STDIN); the result prints to stdout, the exit code is non-zero on error.
+
+Use the CLI for one-off calls, scripts, or CI; register the MCP server for persistent
+interactive use. Sensitive tools require `--allow-tty` to print to a terminal.

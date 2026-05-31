@@ -109,6 +109,17 @@ not as an error to route around.
   `secret`, `token`, and more; it always wins over `safe_list`. Redaction is the
   final net, not the primary gate.
 
+## CLI access (no MCP server required)
+
+- When the agent-mcp MCP server is not registered, call the same read-only tools
+  from the shell: `php artisan agent-mcp:tools` (list), `php artisan agent-mcp:schema
+  <tool>` (input schema), `php artisan agent-mcp:call <tool> '<json>'` (invoke; JSON
+  args positionally or on STDIN, result to stdout, non-zero exit on error). Use the
+  project's artisan form (for example `vendor/bin/sail artisan`) when applicable.
+- Use the CLI for one-off calls, scripts, or CI; register the MCP server for
+  persistent interactive use. Sensitive tools need `--allow-tty` to print to a
+  terminal. See the `agent-mcp-cli` skill for details.
+
 ## Working habits
 
 - Open `db_schema` at the start of any database task, not only after a query

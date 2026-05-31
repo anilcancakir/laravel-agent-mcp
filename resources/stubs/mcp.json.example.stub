@@ -1,4 +1,10 @@
 {
+    // If you only occasionally need these tools, you can skip registering a server here
+    // entirely and call them from the shell instead:
+    //   php artisan agent-mcp:tools
+    //   php artisan agent-mcp:call db_schema '{"table":"users"}'
+    // Register a server below when you want persistent tool access across an interactive
+    // session. See the README "CLI usage" section.
     "mcpServers": {
         // HTTP transport (Streamable HTTP, recommended for remote or production use).
         //
