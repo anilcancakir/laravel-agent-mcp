@@ -1,0 +1,66 @@
+name: Release
+
+# Push a vX.Y.Z tag on main to cut a release: validate, create the GitHub
+# Release with generated notes, then ping Packagist (which also auto-updates
+# from the new tag via its GitHub integration). Tags are the only trigger.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: dom, curl, libxml, mbstring, zip, pdo, sqlite3, pdo_sqlite
+          coverage: pcov
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+      - name: Static analysis
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M
+
+      - name: Run tests
+        run: vendor/bin/pest --coverage --min=80
+
+  release:
+    name: GitHub Release + Packagist
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: write
+    env:
+      PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+      PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+      # Packagist auto-updates from the tag via its GitHub integration; this is
+      # a belt-and-suspenders ping that runs only when the optional secrets are
+      # set. Add PACKAGIST_USERNAME + PACKAGIST_TOKEN (a Packagist "safe" token)
+      # to enable it; otherwise the webhook alone publishes the version.
+      - name: Notify Packagist
+        if: ${{ env.PACKAGIST_TOKEN != '' }}
+        run: |
+          curl -fsSL -X POST -H 'Content-Type: application/json' \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_TOKEN}" \
+            -d "{\"repository\":{\"url\":\"https://github.com/${{ github.repository }}\"}}"
