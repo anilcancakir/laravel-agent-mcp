@@ -17,40 +17,9 @@ Enable only what you want: every tool is individually gated by the operator via
 be explicitly enabled by the operator. Treat a tool-denied response as expected,
 not as an error to route around.
 
-@if(\Anilcancakir\LaravelAgentMcp\Support\InstallMode::current() === 'cli')
-## Working with the CLI
+## When using the MCP server
 
-When the agent-mcp MCP server is not registered, call the same read-only tools
-from the shell:
-
-- `php artisan agent-mcp:tools` lists all available tools.
-- `php artisan agent-mcp:schema <tool>` shows the input schema for a tool.
-- `php artisan agent-mcp:call <tool> '<json>'` invokes a tool; JSON args
-  positionally or on STDIN, result to stdout, non-zero exit on error.
-
-Use the project's artisan form (for example `vendor/bin/sail artisan`) when
-applicable. Sensitive tools need `--allow-tty` to print to a terminal.
-
-For remote applications, set `AGENT_MCP_URL` to the base URL of the target app
-and provide the server key via `AGENT_MCP_KEY`. The CLI will call the HTTP
-endpoint instead of the local artisan runner. See the `agent-mcp-cli` skill for
-the full remote workflow.
-
-Use the CLI for one-off calls, scripts, or CI; register the MCP server for
-persistent interactive use.
-
-## Working habits
-
-- Use `agent-mcp:tools` first to discover what is available before calling.
-- Call `agent-mcp:call db_schema` before writing any query. With no arguments
-  it returns the table list; pass `'{"table":"<name>"}'` for columns, types,
-  indexes, and foreign keys.
-- Reach for `agent-mcp:call read_logs` proactively when a user reports odd
-  behavior, even without an explicit error.
-- Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`,
-  `cache_keys`) are off by default. Do not assume they are available.
-@else
-## The core tools and when to reach for each
+### The core tools and when to reach for each
 
 - `db_schema`: call this BEFORE writing any query. With no arguments it returns
   the table list; pass a `table` argument for that table's columns, types,
@@ -74,7 +43,7 @@ persistent interactive use.
   assume it is available; it is the highest-risk tool, so treat a denial as
   expected rather than an error to work around.
 
-## Queue investigation tools
+### Queue investigation tools
 
 - `queue_backlog`: when a user reports slow or missing background processing,
   start here. Returns pending job counts per connection and queue. Sync driver
@@ -86,7 +55,7 @@ persistent interactive use.
   metrics, and supervisor state. Returns `{available:false}` when Horizon is not
   installed (detect-then-use; no error).
 
-## Database health tools
+### Database health tools
 
 - `db_index_health`: lists indexes per table. PG adds unused-index detection
   (via `pg_stat_user_indexes`) and seq-scan advisory. MySQL uses
@@ -105,7 +74,7 @@ persistent interactive use.
   Point-in-time snapshot. PG requires `pg_monitor` for full visibility; partial
   results are labelled. Returns `{available:false}` on SQLite.
 
-## Cache investigation tools
+### Cache investigation tools
 
 - `cache_status`: start here for cache health questions. Reports all configured
   stores, config/routes/events cached state, opcache summary, and a
@@ -118,7 +87,7 @@ persistent interactive use.
   queries the cache table; Redis uses SCAN (never KEYS) and excludes the session
   prefix to prevent live session IDs from leaking.
 
-## App introspection tools
+### App introspection tools
 
 - `list_routes`: all registered routes with methods, URI, name, controller, and
   middleware (raw + resolved). Filters available: `method`, `uri_prefix`,
@@ -142,7 +111,7 @@ persistent interactive use.
   `secret`, `token`, and more; it always wins over `safe_list`. Redaction is the
   final net, not the primary gate.
 
-## Working habits
+### Working habits (MCP)
 
 - Open `db_schema` at the start of any database task, not only after a query
   fails. Knowing the real shape up front prevents wrong queries.
@@ -158,4 +127,35 @@ persistent interactive use.
   key.
 - `config_inspect`, `db_slow_queries`, `db_active_locks`, and `cache_keys` are
   off by default. Do not assume they are available.
-@endif
+
+## When using the CLI
+
+When the agent-mcp MCP server is not registered, call the same read-only tools
+from the shell:
+
+- `php artisan agent-mcp:tools` lists all available tools.
+- `php artisan agent-mcp:schema <tool>` shows the input schema for a tool.
+- `php artisan agent-mcp:call <tool> '<json>'` invokes a tool; JSON args
+  positionally or on STDIN, result to stdout, non-zero exit on error.
+
+Use the project's artisan form (for example `vendor/bin/sail artisan`) when
+applicable. Sensitive tools need `--allow-tty` to print to a terminal.
+
+For remote applications, set `AGENT_MCP_URL` to the base URL of the target app
+and provide the server key via `AGENT_MCP_KEY`. The CLI will call the HTTP
+endpoint instead of the local artisan runner. See the `agent-mcp-cli` skill for
+the full remote workflow.
+
+Use the CLI for one-off calls, scripts, or CI; register the MCP server for
+persistent interactive use.
+
+### Working habits (CLI)
+
+- Use `agent-mcp:tools` first to discover what is available before calling.
+- Call `agent-mcp:call db_schema` before writing any query. With no arguments
+  it returns the table list; pass `'{"table":"<name>"}'` for columns, types,
+  indexes, and foreign keys.
+- Reach for `agent-mcp:call read_logs` proactively when a user reports odd
+  behavior, even without an explicit error.
+- Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`,
+  `cache_keys`) are off by default. Do not assume they are available.
