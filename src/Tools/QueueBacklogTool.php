@@ -24,6 +24,12 @@ use Throwable;
  * Queue names are enumerated from the jobs table (database driver) or from a
  * configured scan pattern (redis). The sync driver is reported as N/A because
  * it executes inline with no persistent queue.
+ *
+ * CONNECTION BOUNDARY: the jobs-table reads use the connection the queue is
+ * configured to use (queue.connections.*.connection), which may differ from the
+ * package's hardened read-only clone. Only read-only query-builder methods are
+ * used (no write call exists); the dedicated readonly DB grant is the enforcement
+ * boundary for these reads. See the README security model for the rationale.
  */
 #[Name('queue_backlog')]
 class QueueBacklogTool extends AbstractAgentTool

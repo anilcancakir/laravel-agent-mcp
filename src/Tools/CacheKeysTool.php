@@ -33,6 +33,11 @@ use Laravel\Mcp\Server\Attributes\Name;
  *
  * The tool never writes and never issues a destructive or cache-clearing command,
  * and never uses the blocking key-enumeration command (SCAN only).
+ *
+ * CONNECTION BOUNDARY: the database cache store is read on the connection it is
+ * configured to use (cache.stores.*.connection), which may differ from the
+ * package's hardened read-only clone. Only read-only query-builder methods are
+ * used; the dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('cache_keys')]
 class CacheKeysTool extends AbstractAgentTool
@@ -299,9 +304,12 @@ class CacheKeysTool extends AbstractAgentTool
     }
 
     /**
-     * Whether a (prefix-stripped) logical key is a session key. Cache-backed
-     * sessions key on the session id, and the names embed the session cookie name;
-     * such keys are live session identifiers and must never leave the process.
+     * Whether a (prefix-stripped) logical key looks like a session key, by matching
+     * the configured session cookie name as a substring. This is a best-effort
+     * exclusion: a deployment that stores sessions under keys carrying the cookie
+     * name has them dropped here, but Laravel's cache/database session handlers key
+     * on the bare session id, so the genuine mitigation for live-session-id leakage
+     * is that cache_keys ships OFF by default and the operator opts in deliberately.
      */
     private function isSessionKey(string $logicalKey): bool
     {

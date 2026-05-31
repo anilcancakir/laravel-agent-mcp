@@ -378,6 +378,8 @@ The twenty new investigation tools are read-only by design. A number of them exp
 
 Optional backends (`horizon_status`, `db_slow_queries` PG path, Redis paths in `cache_keys`) are detect-then-use: the tool interrogates whether the backend is available at call time and returns `{available:false}` when it is not. No exception is thrown; no package-level hard dependency is added.
 
+**Queue and cache table reads use the configured store connection.** The DB-health tools (`db_index_health`, `db_table_sizes`, etc.) and `db_query`/`db_raw_select` route every read through the hardened read-only connection. By contrast `queue_backlog`, `queue_failed_jobs`, `cache_inspect`, and `cache_keys` read the `jobs`/`failed_jobs`/cache tables on the connection those stores are actually configured to use (`queue.connections.*.connection`, `queue.failed.database`, `cache.stores.*.connection`), which may differ from the read-only clone. These reads use read-only query-builder methods only (no write or mutating call exists anywhere in the package), but they do not carry the per-engine read-only session flag or statement timeout that the hardened connection applies. The independent enforcement boundary here is the dedicated readonly DB user (strongly recommended above): grant-level read-only access covers these reads regardless of the application-layer connection.
+
 ### Redaction is best-effort, not a guarantee
 
 Output redaction is enabled by default and applies to all tool responses: query results, schema output, and log lines. It replaces detected secrets with `[REDACTED]`.

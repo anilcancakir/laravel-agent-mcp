@@ -32,6 +32,11 @@ use Throwable;
  *
  * The tool never writes (no put/forget/flush) and never deserializes a value it
  * is not allowed to reveal.
+ *
+ * CONNECTION BOUNDARY: the database cache store is read on the connection it is
+ * configured to use (cache.stores.*.connection), which may differ from the
+ * package's hardened read-only clone. Only read-only query-builder methods are
+ * used; the dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('cache_inspect')]
 class CacheInspectTool extends AbstractAgentTool

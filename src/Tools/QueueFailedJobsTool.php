@@ -23,6 +23,11 @@ use Throwable;
  *
  * WRITE-SAFETY: this tool never calls forget/flush/retry/delete/trim on the
  * failer. It is strictly read-only.
+ *
+ * CONNECTION BOUNDARY: the failed-jobs table is read on the connection it is
+ * configured to use (queue.failed.database), which may differ from the package's
+ * hardened read-only clone. Only read-only query-builder methods are used; the
+ * dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('queue_failed_jobs')]
 class QueueFailedJobsTool extends AbstractAgentTool
