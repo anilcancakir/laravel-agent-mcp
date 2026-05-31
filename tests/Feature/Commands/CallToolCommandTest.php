@@ -117,3 +117,27 @@ it('forwards to the remote endpoint with a Bearer key and prints the result, nev
     putenv('AGENT_MCP_URL');
     putenv('AGENT_MCP_KEY');
 });
+
+it('maps a remote isError result to a non-zero exit code', function (): void {
+    putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
+    putenv('AGENT_MCP_KEY=super-secret-key-value');
+
+    Http::fake([
+        'remote.test/*' => Http::response(json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'result' => [
+                'content' => [['type' => 'text', 'text' => 'This tool is disabled.']],
+                'isError' => true,
+            ],
+        ]), 200),
+    ]);
+
+    $result = runCall(['tool' => 'config_inspect', 'input' => '{"key":"app"}', '--remote' => true]);
+
+    expect($result['status'])->toBe(1);
+    expect($result['stdout'])->toContain('disabled');
+
+    putenv('AGENT_MCP_URL');
+    putenv('AGENT_MCP_KEY');
+});
