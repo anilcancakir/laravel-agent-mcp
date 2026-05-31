@@ -46,7 +46,7 @@ class EnvKeysTool extends AbstractAgentTool
         sort($keys);
 
         $payload = [
-            'note' => 'Reflects the live process environment ($_ENV). Names only; values are never read.',
+            'note' => 'Reflects the live process environment ($_ENV). Names only; values are never read. On a deployment with cached config (php artisan config:cache) the framework skips loading the .env file, so $_ENV may contain only OS-level variables and not the .env keys.',
             'count' => count($keys),
             'keys' => $keys,
         ];
