@@ -62,9 +62,9 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         //     sane default only when the operator has not configured the channel.
         $this->registerAuditChannel();
 
-        // 2. Publish the agent assets (config is handled by hasConfigFile; these are the
-        //    AGENTS.md snippet + client config example authored in Step 16). Console-only,
-        //    matching the framework convention; the path maps are lazy.
+        // 2. Publish the agent assets (config is handled by hasConfigFile; this is the
+        //    client config example authored in Step 16). Console-only, matching the
+        //    framework convention; the path map is lazy.
         $this->registerPublishing();
 
         // 3. Config-gated transport registration (Oracle IMP3).
@@ -158,9 +158,9 @@ class AgentMcpServiceProvider extends PackageServiceProvider
     }
 
     /**
-     * Register the publishable agent assets (AGENTS.md snippet + client config
-     * example). The stub files are authored in Step 16; the path map is lazy, so
-     * referencing them here is safe before they exist.
+     * Register the publishable agent assets (client config example). The stub
+     * file is authored in Step 16; the path map is lazy, so referencing it here
+     * is safe before it exists.
      */
     private function registerPublishing(): void
     {
@@ -169,7 +169,6 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         }
 
         $this->publishes([
-            __DIR__.'/../resources/stubs/AGENTS.md.stub' => base_path('AGENTS.md'),
             __DIR__.'/../resources/stubs/mcp.json.example.stub' => base_path('.mcp.json.example'),
         ], 'agent-mcp-assets');
     }
