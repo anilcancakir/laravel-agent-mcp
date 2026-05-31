@@ -176,7 +176,7 @@ class DbIndexHealthTool extends AbstractAgentTool
               AND NOT EXISTS (
                   SELECT 1 FROM pg_inherits h WHERE h.inhrelid = i.oid
               )
-              AND (? IS NULL OR t.relname = ?)
+              AND (?::text IS NULL OR t.relname = ?)
             ORDER BY t.relname, i.relname
             SQL,
             $bindings,
@@ -189,7 +189,7 @@ class DbIndexHealthTool extends AbstractAgentTool
                 seq_scan AS sequential_scans,
                 idx_scan AS index_scans
             FROM pg_stat_user_tables
-            WHERE (? IS NULL OR relname = ?)
+            WHERE (?::text IS NULL OR relname = ?)
             ORDER BY seq_scan DESC
             SQL,
             $bindings,

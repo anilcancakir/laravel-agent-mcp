@@ -206,7 +206,7 @@ class DbMissingFkIndexesTool extends AbstractAgentTool
             JOIN pg_namespace n ON n.oid = t.relnamespace
             WHERE c.contype = 'f'
               AND {$schemaScope}
-              AND (? IS NULL OR t.relname = ?)
+              AND (?::text IS NULL OR t.relname = ?)
               AND NOT EXISTS (
                   SELECT 1
                   FROM pg_index ix

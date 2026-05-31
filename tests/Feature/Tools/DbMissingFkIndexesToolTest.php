@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
+use Mockery\Expectation;
 
 // A minimal server that hosts only DbMissingFkIndexesTool, keeping these tests
 // isolated from AgentMcpServer.
@@ -127,14 +128,25 @@ it('maps the PostgreSQL pg_constraint anti-join row into a missing-index report'
     $fake = Mockery::mock(CatalogQuery::class);
     $fake->shouldReceive('driver')->andReturn('pgsql');
     $fake->shouldReceive('postgresSchemaScope')->andReturn("n.nspname NOT IN ('pg_catalog', 'information_schema')");
-    $fake->shouldReceive('select')->andReturn([
-        (object) [
-            'schema' => 'public',
-            'table' => 'order_items',
-            'constraint' => 'order_items_order_id_fkey',
-            'columns' => 'order_id',
-        ],
-    ]);
+    /** @var Expectation $selectExpectation */
+    $selectExpectation = $fake->shouldReceive('select');
+    $selectExpectation->andReturnUsing(function (string $sql): array {
+        // Regression guard (real-PG bug, SQLSTATE 42P18): the optional-table filter
+        // must type the placeholder so PostgreSQL can infer it under native prepares.
+        if (str_contains($sql, 'IS NULL')) {
+            expect($sql)->toContain('?::text IS NULL')
+                ->and($sql)->not->toContain('(? IS NULL');
+        }
+
+        return [
+            (object) [
+                'schema' => 'public',
+                'table' => 'order_items',
+                'constraint' => 'order_items_order_id_fkey',
+                'columns' => 'order_id',
+            ],
+        ];
+    });
     app()->instance(CatalogQuery::class, $fake);
 
     $response = DbMissingFkIndexesStubServer::tool(DbMissingFkIndexesTool::class, [])

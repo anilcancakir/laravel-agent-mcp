@@ -110,6 +110,14 @@ it('maps the PostgreSQL unused-index + seq-scan catalog rows into the report', f
     /** @var Expectation $selectExpectation */
     $selectExpectation = $fake->shouldReceive('select');
     $selectExpectation->andReturnUsing(function (string $sql): array {
+        // Regression guard (real-PG bug, SQLSTATE 42P18): an optional-table filter
+        // written as a bare "? IS NULL" leaves the placeholder type indeterminate on
+        // PostgreSQL with native prepares. The filter must type the placeholder.
+        if (str_contains($sql, 'IS NULL')) {
+            expect($sql)->toContain('?::text IS NULL')
+                ->and($sql)->not->toContain('(? IS NULL');
+        }
+
         if (str_contains($sql, 'pg_stat_user_indexes')) {
             return [
                 (object) [
