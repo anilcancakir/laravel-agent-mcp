@@ -1,12 +1,13 @@
 <?php
 
+use Anilcancakir\LaravelAgentMcp\Database\CatalogQuery;
 use Anilcancakir\LaravelAgentMcp\Tools\DbIndexHealthTool;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
+use Mockery\Expectation;
 
 // A minimal server that hosts only DbIndexHealthTool, keeping these tests
 // isolated from AgentMcpServer.
@@ -92,28 +93,96 @@ it('treats a crafted table name as a bound literal, never query structure', func
     expect(Schema::connection('readonly')->hasTable('index_health_posts'))->toBeTrue();
 });
 
-// --- PG/MySQL engine-gated coverage (suite runs on SQLite) ---
+// --- PG/MySQL branch coverage via an injected fake CatalogQuery ---
+//
+// The suite runs on SQLite, so the pgsql/mysql branches never execute against a
+// real server. We bind a fake CatalogQuery reporting the engine + scope fragments
+// and returning canned catalog rows that carry the exact column aliases each branch
+// reads, then assert the tool produces the correctly-mapped report.
 
-it('exercises the PostgreSQL unused-index path when the engine is PostgreSQL', function (): void {
-    if (DB::connection('readonly')->getDriverName() !== 'pgsql') {
-        expect(true)->toBeTrue();
+it('maps the PostgreSQL unused-index + seq-scan catalog rows into the report', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('pgsql');
+    $fake->shouldReceive('postgresSchemaScope')->andReturn("n.nspname NOT IN ('pg_catalog', 'information_schema')");
+    // The pgsql branch issues three selects (unused indexes, seq-scan advisory,
+    // stats-reset). Branch on the SQL string so each returns its canned row set
+    // carrying the exact column aliases the tool reads.
+    /** @var Expectation $selectExpectation */
+    $selectExpectation = $fake->shouldReceive('select');
+    $selectExpectation->andReturnUsing(function (string $sql): array {
+        if (str_contains($sql, 'pg_stat_user_indexes')) {
+            return [
+                (object) [
+                    'schema' => 'public',
+                    'table' => 'orders',
+                    'index' => 'orders_legacy_idx',
+                    'scans' => 0,
+                ],
+            ];
+        }
 
-        return;
-    }
+        if (str_contains($sql, 'pg_stat_user_tables')) {
+            return [
+                (object) [
+                    'table' => 'orders',
+                    'sequential_scans' => 1200,
+                    'index_scans' => 30,
+                ],
+            ];
+        }
+
+        return [(object) ['stats_reset' => '2026-05-01 00:00:00+00']];
+    });
+    app()->instance(CatalogQuery::class, $fake);
+
+    $response = DbIndexHealthStubServer::tool(DbIndexHealthTool::class, [])
+        ->assertOk();
+
+    $response->assertSee('pgsql');
+    $response->assertSee('unused_indexes');
+    $response->assertSee('orders_legacy_idx');
+    $response->assertSee('sequential_scan_advisory');
+    $response->assertSee('stats_reset');
+});
+
+it('maps the MySQL STATISTICS catalog rows into the index report', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('mysql');
+    $fake->shouldReceive('mysqlDatabaseScope')->andReturn('TABLE_SCHEMA = DATABASE()');
+    $fake->shouldReceive('select')->andReturn([
+        (object) [
+            'table' => 'invoices',
+            'index' => 'invoices_customer_id_index',
+            'column' => 'customer_id',
+            'seq_in_index' => 1,
+            'non_unique' => 1,
+            'cardinality' => 5000,
+        ],
+    ]);
+    app()->instance(CatalogQuery::class, $fake);
+
+    $response = DbIndexHealthStubServer::tool(DbIndexHealthTool::class, [])
+        ->assertOk();
+
+    $response->assertSee('mysql');
+    $response->assertSee('indexes');
+    $response->assertSee('invoices_customer_id_index');
+    $response->assertSee('customer_id');
+    $response->assertSee('cardinality');
+});
+
+// --- unsupported engine degrades to available:false ---
+
+it('returns available:false for an engine it does not understand', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('sqlsrv');
+    app()->instance(CatalogQuery::class, $fake);
 
     DbIndexHealthStubServer::tool(DbIndexHealthTool::class, [])
         ->assertOk()
-        ->assertSee('pgsql');
-})->skip(
-    fn (): bool => DB::connection('readonly')->getDriverName() !== 'pgsql',
-    'PostgreSQL-only path; the suite runs on SQLite.',
-);
+        ->assertSee('available');
+});
 
-it('exercises the MySQL STATISTICS path when the engine is MySQL', function (): void {
-    DbIndexHealthStubServer::tool(DbIndexHealthTool::class, [])
-        ->assertOk()
-        ->assertSee('mysql');
-})->skip(
-    fn (): bool => DB::connection('readonly')->getDriverName() !== 'mysql',
-    'MySQL-only path; the suite runs on SQLite.',
-);
+afterEach(function (): void {
+    Mockery::close();
+});

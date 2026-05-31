@@ -1,8 +1,8 @@
 <?php
 
+use Anilcancakir\LaravelAgentMcp\Database\CatalogQuery;
 use Anilcancakir\LaravelAgentMcp\Tools\DbMissingFkIndexesTool;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
@@ -116,22 +116,74 @@ it('treats a crafted table name as a bound literal, never query structure', func
     expect(Schema::connection('readonly')->hasTable('fk_child'))->toBeTrue();
 });
 
-// --- PG/MySQL engine-gated coverage (suite runs on SQLite) ---
+// --- PG/MySQL branch coverage via an injected fake CatalogQuery ---
+//
+// The suite runs on SQLite, so the pgsql/mysql anti-join branches never execute
+// against a real server. The fake reports the engine + scope fragment and returns
+// a canned catalog row carrying each branch's column aliases; we assert the tool
+// maps the row into the missing-index report (definitive detection label).
 
-it('exercises the PostgreSQL anti-join path when the engine is PostgreSQL', function (): void {
+it('maps the PostgreSQL pg_constraint anti-join row into a missing-index report', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('pgsql');
+    $fake->shouldReceive('postgresSchemaScope')->andReturn("n.nspname NOT IN ('pg_catalog', 'information_schema')");
+    $fake->shouldReceive('select')->andReturn([
+        (object) [
+            'schema' => 'public',
+            'table' => 'order_items',
+            'constraint' => 'order_items_order_id_fkey',
+            'columns' => 'order_id',
+        ],
+    ]);
+    app()->instance(CatalogQuery::class, $fake);
+
+    $response = DbMissingFkIndexesStubServer::tool(DbMissingFkIndexesTool::class, [])
+        ->assertOk();
+
+    $response->assertSee('pgsql');
+    $response->assertSee('definitive');
+    $response->assertSee('missing_indexes');
+    $response->assertSee('order_items');
+    $response->assertSee('order_items_order_id_fkey');
+});
+
+it('maps the MySQL KEY_COLUMN_USAGE row into a missing-index report', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('mysql');
+    $fake->shouldReceive('mysqlDatabaseScope')->andReturn('kcu.TABLE_SCHEMA = DATABASE()');
+    $fake->shouldReceive('select')->andReturn([
+        (object) [
+            'table' => 'line_items',
+            'column' => 'invoice_id',
+            'references_table' => 'invoices',
+            'references_column' => 'id',
+            'constraint' => 'line_items_invoice_id_foreign',
+        ],
+    ]);
+    app()->instance(CatalogQuery::class, $fake);
+
+    $response = DbMissingFkIndexesStubServer::tool(DbMissingFkIndexesTool::class, [])
+        ->assertOk();
+
+    $response->assertSee('mysql');
+    $response->assertSee('definitive');
+    $response->assertSee('line_items');
+    $response->assertSee('invoice_id');
+    $response->assertSee('references_table');
+});
+
+// --- unsupported engine degrades to available:false ---
+
+it('returns available:false for an engine it does not understand', function (): void {
+    $fake = Mockery::mock(CatalogQuery::class);
+    $fake->shouldReceive('driver')->andReturn('sqlsrv');
+    app()->instance(CatalogQuery::class, $fake);
+
     DbMissingFkIndexesStubServer::tool(DbMissingFkIndexesTool::class, [])
         ->assertOk()
-        ->assertSee('pgsql');
-})->skip(
-    fn (): bool => DB::connection('readonly')->getDriverName() !== 'pgsql',
-    'PostgreSQL-only path; the suite runs on SQLite.',
-);
+        ->assertSee('available');
+});
 
-it('exercises the MySQL KEY_COLUMN_USAGE path when the engine is MySQL', function (): void {
-    DbMissingFkIndexesStubServer::tool(DbMissingFkIndexesTool::class, [])
-        ->assertOk()
-        ->assertSee('mysql');
-})->skip(
-    fn (): bool => DB::connection('readonly')->getDriverName() !== 'mysql',
-    'MySQL-only path; the suite runs on SQLite.',
-);
+afterEach(function (): void {
+    Mockery::close();
+});
