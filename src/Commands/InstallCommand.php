@@ -2,45 +2,127 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Commands;
 
+use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 
 /**
- * One-shot setup command for laravel-agent-mcp.
+ * Two-mode setup command for laravel-agent-mcp.
  *
- * Publishes the package config and agent assets (AGENTS.md, .mcp.json.example),
- * then prints six guidance sections so the adopter can connect a client securely
- * without reading the README first:
+ * Resolves an install mode (MCP default vs CLI), records it in a committed
+ * .agent-mcp.json (so the team, CI, and laravel-boost all see one mode), then
+ * publishes the package config + agent assets and prints mode-tailored guidance.
+ *
+ * Shared in BOTH modes:
  *   1. AGENT_MCP_KEY generation and mandatory env setup.
  *   2. Per-engine readonly DB user provisioning reminder.
- *   3. HTTP client .mcp.json block (Streamable HTTP with Bearer auth).
- *   4. stdio bridge .mcp.json block (agent-mcp:stdio command with AGENT_MCP_URL + AGENT_MCP_KEY).
- *   5. claude mcp add one-liner for the HTTP endpoint.
- *   6. Security warning: never expose the endpoint with app.debug=true.
+ *   3. Security warning: never expose the endpoint with app.debug=true.
+ *   4. The exact laravel-boost next-step so boost injects the active-mode assets.
+ *
+ * MCP mode additionally prints:
+ *   - HTTP + stdio .mcp.json client blocks.
+ *   - The claude mcp add one-liner.
+ *
+ * CLI mode instead prints:
+ *   - An agent-mcp:call / agent-mcp:tools usage block (local + remote), and
+ *     SKIPS the .mcp.json blocks / claude mcp add.
  */
 class InstallCommand extends Command
 {
     /** @var string */
-    protected $signature = 'agent-mcp:install';
+    protected $signature = 'agent-mcp:install {--mode= : The install mode to record (mcp or cli)}';
 
     /** @var string */
-    protected $description = 'Publish the agent-mcp config and assets, then print client setup instructions.';
+    protected $description = 'Record the install mode, publish the agent-mcp config and assets, then print mode-tailored setup instructions.';
 
     public function handle(): int
     {
-        // 1. Publish config and agent assets so the adopter has the files on disk.
+        // 1. Resolve and record the mode; an invalid --mode fails closed (non-zero).
+        $mode = $this->resolveMode();
+
+        if ($mode === null) {
+            return self::FAILURE;
+        }
+
+        $this->recordMode($mode);
+
+        // 2. Publish config + agent assets so the adopter has the files on disk.
+        //    The .mcp.json.example shipped under agent-mcp-assets is harmless in cli
+        //    mode (only the printed guidance differs), so both modes publish both tags.
         $this->call('vendor:publish', ['--tag' => 'agent-mcp-config']);
         $this->call('vendor:publish', ['--tag' => 'agent-mcp-assets']);
 
         $this->newLine();
 
-        // 2. Print the six guidance sections.
+        // 3. Print the shared guidance, then the mode-tailored sections.
         $this->printKeySetupInstructions();
         $this->printDbUserReminder();
-        $this->printClientConfigBlocks();
-        $this->printClaudeMcpAddOneliner();
+
+        if ($mode === 'mcp') {
+            $this->printClientConfigBlocks();
+            $this->printClaudeMcpAddOneliner();
+        } else {
+            $this->printCliUsageBlock();
+        }
+
         $this->printDebugWarning();
+        $this->printBoostNextStep($mode);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve the install mode from --mode, an interactive prompt, or the default.
+     *
+     * Returns the resolved mode string, or null when --mode carries an invalid
+     * value (the caller maps null to a non-zero exit). A given --mode is validated
+     * against InstallMode::modes(); without --mode an interactive run prompts
+     * (default mcp) and a non-interactive run falls back to mcp.
+     */
+    private function resolveMode(): ?string
+    {
+        $given = $this->option('mode');
+
+        if ($given !== null) {
+            if (! in_array($given, InstallMode::modes(), true)) {
+                $this->error(sprintf(
+                    'Invalid --mode [%s]; expected one of: %s.',
+                    $given,
+                    implode(', ', InstallMode::modes()),
+                ));
+
+                return null;
+            }
+
+            return $given;
+        }
+
+        if ($this->input->isInteractive()) {
+            return $this->choice('Install mode', InstallMode::modes(), 'mcp');
+        }
+
+        return 'mcp';
+    }
+
+    /**
+     * Record the resolved mode to the committed .agent-mcp.json.
+     *
+     * Re-running with a different mode overwrites the file; the printed note makes
+     * that explicit. The mode was already validated in resolveMode(), so write()
+     * never throws here; the guard is defense in depth.
+     */
+    private function recordMode(string $mode): void
+    {
+        try {
+            InstallMode::write($mode);
+        } catch (InvalidArgumentException $exception) {
+            $this->error($exception->getMessage());
+
+            return;
+        }
+
+        $this->line(sprintf('Recorded install mode [%s] in %s (commit this file).', $mode, InstallMode::path()));
+        $this->line('Re-running with a different --mode overwrites it.');
     }
 
     /**
@@ -105,7 +187,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * Print the ready-to-paste HTTP and stdio bridge client config blocks.
+     * Print the ready-to-paste HTTP and stdio bridge client config blocks (mcp mode).
      *
      * The HTTP block uses Streamable HTTP with a Bearer key header. The stdio
      * bridge block runs the agent-mcp:stdio command locally; it connects to the
@@ -156,7 +238,7 @@ class InstallCommand extends Command
     }
 
     /**
-     * Print the claude mcp add one-liner for the HTTP endpoint.
+     * Print the claude mcp add one-liner for the HTTP endpoint (mcp mode).
      *
      * Laravel Boost cannot auto-wire third-party MCP servers; the adopter must
      * run this command manually to register the server with the Claude CLI.
@@ -181,6 +263,39 @@ class InstallCommand extends Command
     }
 
     /**
+     * Print the agent-mcp:call / agent-mcp:tools CLI usage block (cli mode).
+     *
+     * CLI mode skips the MCP client config; the adopter calls the read-only tools
+     * straight from the shell instead, locally or against a remote endpoint via
+     * AGENT_MCP_URL. The same per-tool gate, audit log, and redaction apply.
+     */
+    private function printCliUsageBlock(): void
+    {
+        $this->info('=== CLI usage (agent-mcp:call) ===');
+        $this->newLine();
+        $this->line('CLI mode skips the MCP client config. Call the read-only tools from the shell:');
+        $this->newLine();
+        $this->line('List the tools you can call (add --all to include disabled ones):');
+        $this->line('  php artisan agent-mcp:tools');
+        $this->newLine();
+        $this->line('Inspect a tool\'s input shape:');
+        $this->line('  php artisan agent-mcp:schema db_schema');
+        $this->newLine();
+        $this->line('Call a tool with a JSON arguments object (positional or on STDIN):');
+        $this->line('  php artisan agent-mcp:call db_schema \'{"table":"users"}\'');
+        $this->line('  echo \'{"table":"users"}\' | php artisan agent-mcp:call db_schema');
+        $this->newLine();
+        $this->line('Local mode (default): nothing to configure; the call runs in-process.');
+        $this->line('Remote mode: set AGENT_MCP_URL (the remote /agent-mcp URL) + AGENT_MCP_KEY so');
+        $this->line('the command forwards to a remote endpoint instead of running locally.');
+        $this->newLine();
+        $this->line('Sensitive tools (config_inspect, db_slow_queries, db_active_locks, cache_keys,');
+        $this->line('run_artisan) are off by default. When enabled, the CLI refuses to print their');
+        $this->line('result to a terminal unless you pass --allow-tty; piping or redirecting is allowed.');
+        $this->newLine();
+    }
+
+    /**
      * Print the app.debug=true security warning.
      *
      * The package strips stack traces from MCP error responses regardless of the
@@ -199,5 +314,54 @@ class InstallCommand extends Command
         $this->line('Set APP_DEBUG=false in production, or restrict the endpoint to an');
         $this->line('internal network before turning debug mode on.');
         $this->newLine();
+    }
+
+    /**
+     * Print the laravel-boost next-step so it injects the active-mode assets.
+     *
+     * Boost discovers a package's skills/guidelines only when the package is
+     * selected in boost:install (or rediscovered via boost:update --discover). The
+     * shipped blades read the recorded mode at render time, so this step is what
+     * makes the active-mode skill + guideline land. Boost is never auto-run.
+     */
+    private function printBoostNextStep(string $mode): void
+    {
+        $this->info('=== Next step: let Laravel Boost inject the assets ===');
+        $this->newLine();
+        $this->line(sprintf('Recorded mode is [%s]. Laravel Boost injects only the active mode\'s', $mode));
+        $this->line('skill + guideline by reading .agent-mcp.json at render time.');
+        $this->newLine();
+
+        if ($this->boostIsInstalled()) {
+            $this->line('Boost is installed. Run it to inject (or rediscover) the assets:');
+            $this->line('  php artisan boost:install');
+            $this->line('  # already set up? rediscover packages instead:');
+            $this->line('  php artisan boost:update --discover');
+            $this->newLine();
+            $this->line('Sail users: prefix with vendor/bin/sail, e.g. vendor/bin/sail artisan boost:install.');
+            $this->newLine();
+
+            return;
+        }
+
+        $this->line('Laravel Boost is not installed. Install it first, then run boost:install:');
+        $this->line('  composer require laravel/boost --dev');
+        $this->line('  php artisan boost:install');
+        $this->line('Sail users: prefix with vendor/bin/sail, e.g. vendor/bin/sail artisan boost:install.');
+        $this->newLine();
+    }
+
+    /**
+     * Detect whether laravel-boost is installed in the consumer application.
+     *
+     * The service provider class is the reliable signal: it is autoloaded only
+     * when the package is present, so class_exists() without autoload side effects
+     * is enough to branch the printed guidance. The FQCN is referenced as a
+     * string (not a use import) because laravel-boost is not a dependency of this
+     * package; the class exists only in a consumer that has installed boost.
+     */
+    private function boostIsInstalled(): bool
+    {
+        return class_exists('Laravel\Boost\BoostServiceProvider');
     }
 }
