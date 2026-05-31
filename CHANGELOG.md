@@ -22,6 +22,7 @@ Initial public release. A secure, read-only Model Context Protocol (MCP) server 
 - Two install modes recorded in a committed `.agent-mcp.json`: `mcp` (default, registers the MCP server) and `cli` (artisan commands only).
 - CLI surface: `agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema` (local in-process or remote via `AGENT_MCP_URL`), plus the `agent-mcp:stdio` remote bridge for clients without custom HTTP headers.
 - Laravel Boost integration: mode-guarded skills and a guideline shipped under `resources/boost/`, auto-discovered by `boost:install`.
+- Boost-independent injection: when laravel-boost is absent, `agent-mcp:install` writes the mode-correct guideline into the selected agents' instruction files (inside a managed, idempotent, atomically written `<laravel-agent-mcp-guidelines>` marker block) and copies the active-mode skill into each agent's skills directory. Agent selection via an interactive multiselect or `--agents=key1,key2|all` (default: detected agents, falling back to Claude Code); `--no-inject` skips, `--inject` forces even when boost is installed. Supports the 10 boost-parity agents (Claude Code, Cursor, Copilot, Junie, Gemini, Codex, OpenCode, Amp, Kiro, Antigravity); shared guideline files and skill dirs are written once.
 - Configurable read-only connection, query row caps, statement timeout, redaction patterns, and audit channel.
 
 ### Supported

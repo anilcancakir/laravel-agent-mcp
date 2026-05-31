@@ -425,7 +425,7 @@ The `laravel/mcp` pin is intentional: it is pre-1.0 with breaking changes betwee
 This repository is AI-readiness aware:
 
 - [`llms.txt`](llms.txt): a machine-readable index of what the package is and where its docs live.
-- The published `AGENTS.md` (via `agent-mcp:install`) tells coding agents how to use the tools in a consumer project.
+- In a consumer project, `agent-mcp:install` injects the package guideline into the selected agents' instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) and copies the active-mode skill into each agent's skills directory, so the agent learns how to use the tools. See [Agent guideline and skill injection](#agent-guideline-and-skill-injection).
 
 ## Changelog
 
