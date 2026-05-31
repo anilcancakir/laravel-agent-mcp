@@ -2,8 +2,11 @@
 
 namespace Anilcancakir\LaravelAgentMcp;
 
+use Anilcancakir\LaravelAgentMcp\Commands\CallToolCommand;
 use Anilcancakir\LaravelAgentMcp\Commands\InstallCommand;
+use Anilcancakir\LaravelAgentMcp\Commands\ListToolsCommand;
 use Anilcancakir\LaravelAgentMcp\Commands\StdioBridgeCommand;
+use Anilcancakir\LaravelAgentMcp\Commands\ToolSchemaCommand;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -30,7 +33,10 @@ class AgentMcpServiceProvider extends PackageServiceProvider
             ->name('agent-mcp')
             ->hasConfigFile()
             ->hasCommand(InstallCommand::class)
-            ->hasCommand(StdioBridgeCommand::class);
+            ->hasCommand(StdioBridgeCommand::class)
+            ->hasCommand(CallToolCommand::class)
+            ->hasCommand(ListToolsCommand::class)
+            ->hasCommand(ToolSchemaCommand::class);
     }
 
     public function packageRegistered(): void
