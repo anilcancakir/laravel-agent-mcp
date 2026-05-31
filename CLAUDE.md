@@ -34,3 +34,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Read-only: there are no write tools and none may be added. Every database read goes through the hardened read-only connection, and `db_raw_select` is validated SELECT-only. Surface a change for the operator instead of writing.
 - Auth is a single server-admin key (`AGENT_MCP_KEY`), fail-closed: not Sanctum, not a user model, not a database table. Do not add per-user auth.
 - The package must stay green on BOTH `laravel/mcp` 0.6 and 0.7. Code that touches the mcp surface (Response, Request, transport, trace handling) works on both; do not widen the `>=0.6 <0.8` constraint without testing the new minor.
+
+## Git workflow
+
+- `main` is protected: no direct pushes. Land every change through a pull request that passes CI (the "CI Passed" check) and one approval, then squash-merge; the head branch is deleted on merge.
+- Branch off `main` for work (`feat/...`, `fix/...`, `chore/...`) and open a PR into `main`.
+- Release by pushing a `vX.Y.Z` tag on `main`: `.github/workflows/release.yml` validates, creates the GitHub Release with generated notes, and pings Packagist (which also auto-updates from the tag via its GitHub integration). Do not create releases by hand.
+- Dependabot opens grouped weekly PRs for `composer` and `github-actions`; low-risk ones (GitHub Actions minor/patch, dev-dependency patches) auto-merge once CI passes.
