@@ -186,6 +186,15 @@ class CacheStatusTool extends AbstractAgentTool
     {
         $redacted = $this->redactor()->redactArray($payload);
 
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
+        // opcache_get_status() can return non-finite floats (NAN/INF) or non-UTF8
+        // bytes depending on the SAPI (e.g. FrankenPHP under JIT). Without these
+        // flags json_encode returns false and the whole snapshot collapses to "{}".
+        // PARTIAL_OUTPUT_ON_ERROR substitutes null for an unencodable scalar and
+        // INVALID_UTF8_SUBSTITUTE replaces bad bytes, so the rest of the payload
+        // still reaches the caller.
+        $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE
+            | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE;
+
+        return Response::text(json_encode($redacted, $flags) ?: '{}');
     }
 }
