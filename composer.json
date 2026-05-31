@@ -21,6 +21,18 @@
         "config",
         "devtools"
     ],
+    "homepage": "https://github.com/anilcancakir/laravel-agent-mcp",
+    "authors": [
+        {
+            "name": "Anilcan Cakir",
+            "email": "anilcan.cakir@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/anilcancakir/laravel-agent-mcp/issues",
+        "source": "https://github.com/anilcancakir/laravel-agent-mcp"
+    },
     "require": {
         "php": "^8.3",
         "illuminate/contracts": "^11.0||^12.0||^13.0",
