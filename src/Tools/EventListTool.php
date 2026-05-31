@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Events\Dispatcher;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use ReflectionFunction;
 use ReflectionProperty;
@@ -33,6 +34,14 @@ use ReflectionProperty;
  * No event mutations are made; this tool is strictly read-only.
  */
 #[Name('event_list')]
+#[Description(<<<'TEXT'
+    List registered event listeners, including wildcard listeners. Use it to map event wiring or to check whether a listener queues or broadcasts.
+
+    Usage:
+    - Optionally pass `filter` to match event names by case-sensitive substring; omit it for all events.
+    - Listeners are classified as string, Closure (with file and line), or [class, method], and flagged when they implement ShouldQueue or ShouldBroadcast.
+    - Read-only.
+    TEXT)]
 class EventListTool extends AbstractAgentTool
 {
     /**

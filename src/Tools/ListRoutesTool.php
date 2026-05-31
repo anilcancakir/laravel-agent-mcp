@@ -11,6 +11,7 @@ use Illuminate\Routing\ViewController;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -29,6 +30,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * representations are emitted (closures are replaced with [Closure]).
  */
 #[Name('list_routes')]
+#[Description(<<<'TEXT'
+    List the application's registered routes with methods, URI, name, controller, and middleware. Use it to map the API surface, find a route, or audit middleware coverage.
+
+    Usage:
+    - Filters are all optional and combinable: method, uri_prefix, name_pattern (Str::is wildcard like "api.*"), middleware, exclude_middleware (e.g. "auth" to find unprotected routes), domain, only_fallback.
+    - Middleware is reported by name only; no signed-route keys are exposed.
+    - Use inspect_route for the full detail of one route.
+    - Read-only.
+    TEXT)]
 class ListRoutesTool extends AbstractAgentTool
 {
     /**

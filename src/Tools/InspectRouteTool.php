@@ -10,6 +10,7 @@ use Illuminate\Routing\Router;
 use Illuminate\Routing\ViewController;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -27,6 +28,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * Router which are stable across L11/L12.
  */
 #[Name('inspect_route')]
+#[Description(<<<'TEXT'
+    Show the full detail of a single route, looked up by name or URI. Use it when you need one route's controller, middleware, and defaults rather than the whole list.
+
+    Usage:
+    - Provide either `name` or `uri` (URI without the leading slash). One of the two is required.
+    - Returns the same shape as list_routes plus the route defaults.
+    - Read-only.
+    TEXT)]
 class InspectRouteTool extends AbstractAgentTool
 {
     /**

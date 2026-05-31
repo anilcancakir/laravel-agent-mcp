@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -21,6 +22,13 @@ use Laravel\Mcp\Server\Attributes\Name;
  * No database or file mutations are made; this tool is strictly read-only.
  */
 #[Name('app_about')]
+#[Description(<<<'TEXT'
+    Snapshot the application environment: framework and PHP versions, environment and debug flag, drivers, cache state, and loaded extensions. Mirrors the `php artisan about` command. Use it for a quick read of how the app is configured.
+
+    Usage:
+    - Optionally pass `sections` to limit the output (for example environment, cache, drivers); omit it for everything.
+    - Read-only.
+    TEXT)]
 class AppAboutTool extends AbstractAgentTool
 {
     /**

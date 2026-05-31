@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -20,6 +21,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * It is a discovery aid (what configuration knobs exist), not a value reader.
  */
 #[Name('env_keys')]
+#[Description(<<<'TEXT'
+    List the names of the process environment variables. Use it to learn which environment variables are set without ever reading their values.
+
+    Usage:
+    - Takes no arguments.
+    - Returns key names only; values are never returned. To read a specific config value, use config_inspect, which gates values behind a safe-list.
+    - Read-only.
+    TEXT)]
 class EnvKeysTool extends AbstractAgentTool
 {
     /**

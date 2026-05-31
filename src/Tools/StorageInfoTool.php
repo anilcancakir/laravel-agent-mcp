@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -22,6 +23,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * write access.
  */
 #[Name('storage_info')]
+#[Description(<<<'TEXT'
+    Report the configured filesystem disks and public storage links. Use it when inspecting disk configuration or symlink state.
+
+    Usage:
+    - Takes no arguments.
+    - Disk credentials (key, secret, password, token) are stripped from the output; root paths are reported as-is. Symlinks include a liveness check.
+    - Read-only.
+    TEXT)]
 class StorageInfoTool extends AbstractAgentTool
 {
     /**

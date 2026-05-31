@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Arr;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -35,6 +36,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * then passed through OutputRedactor as a final, best-effort net.
  */
 #[Name('config_inspect')]
+#[Description(<<<'TEXT'
+    Inspect the application config tree, and optionally reveal specific values. Use it to audit config structure or verify a single non-sensitive value. Enable with care.
+
+    Usage:
+    - Off by default; treat a denial as the expected default.
+    - `key` is a config dot-path or file, for example "app" or "database.connections.mysql". By default only the key tree with value types is returned.
+    - A value is revealed only when `reveal_values` is true AND the dot-path is safe-listed (the operator safe_list plus any you pass in `safe_keys`) AND it is not block-listed. The block-list always wins, so secrets such as keys, passwords, and DSNs stay [REDACTED] even when explicitly requested.
+    - Read-only.
+    TEXT)]
 class ConfigInspectTool extends AbstractAgentTool
 {
     /**

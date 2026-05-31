@@ -7,6 +7,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use ReflectionFunction;
 
@@ -25,6 +26,13 @@ use ReflectionFunction;
  * No schedule modifications are made; this tool is strictly read-only.
  */
 #[Name('schedule_list')]
+#[Description(<<<'TEXT'
+    List the registered scheduled tasks with their cron expression, command summary, next run time, and flags such as withoutOverlapping and onOneServer. Use it when investigating scheduled-task definitions or timing.
+
+    Usage:
+    - Takes no meaningful arguments; omit `filter`.
+    - Read-only.
+    TEXT)]
 class ScheduleListTool extends AbstractAgentTool
 {
     /**
