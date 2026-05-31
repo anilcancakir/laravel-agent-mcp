@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Throwable;
 
@@ -33,6 +34,14 @@ use Throwable;
  * interpolated.
  */
 #[Name('db_table_sizes')]
+#[Description(<<<'TEXT'
+    Report per-table storage size and row counts on the read-only connection. Use it when investigating disk usage, table bloat, or dead-tuple buildup.
+
+    Usage:
+    - Omit `table` to size every table; provide `table` to scope the report.
+    - PostgreSQL uses pg_total_relation_size and adds a dead-tuple percentage; MySQL sizes from information_schema.TABLES are estimates; SQLite probes dbstat and degrades gracefully when it is unavailable.
+    - Read-only.
+    TEXT)]
 class DbTableSizesTool extends AbstractAgentTool
 {
     /**

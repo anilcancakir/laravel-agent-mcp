@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -27,6 +28,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * carry secrets (Oracle IMP4: redaction is best-effort defense-in-depth).
  */
 #[Name('db_schema')]
+#[Description(<<<'TEXT'
+    Inspect the live database schema on the read-only connection. Returns the real tables and columns, not what model or migration files imply.
+
+    Usage:
+    - Call this BEFORE writing any db_query or db_raw_select, and whenever you hit an unknown table or column. The running schema can differ from the code.
+    - Omit `table` to list every table with its size. Provide `table` to get that table's columns, indexes, and foreign keys.
+    - An unknown table name is rejected with a clean error, so confirm exact names here first.
+    - Read-only and safe to call often. Output is redacted as a best-effort secret filter.
+    TEXT)]
 class DbSchemaTool extends AbstractAgentTool
 {
     /**

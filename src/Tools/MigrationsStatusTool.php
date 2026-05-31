@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -27,6 +28,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * valid state, not a fault).
  */
 #[Name('migrations_status')]
+#[Description(<<<'TEXT'
+    Report which migrations have run, grouped by batch, from the migrations table. Use it to confirm a migration ran or to read the batch history.
+
+    Usage:
+    - Takes no arguments.
+    - Reports the ran list and batch numbers only. Detecting pending migrations needs the filesystem and is intentionally not done here.
+    - Read-only.
+    TEXT)]
 class MigrationsStatusTool extends AbstractAgentTool
 {
     /**

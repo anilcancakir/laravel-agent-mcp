@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -33,6 +34,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * The tool NEVER runs query plans with execution or any statement-killing function.
  */
 #[Name('db_slow_queries')]
+#[Description(<<<'TEXT'
+    Report the top statements by mean execution time. Use it to find the worst-performing queries before looking at index structure with db_index_health.
+
+    Usage:
+    - Off by default; treat a denial as the expected default, not an error.
+    - Requires pg_stat_statements (PostgreSQL) or performance_schema (MySQL). It returns {available:false} when the extension or schema is absent, and results can be partial depending on the connection's privileges.
+    - `limit` caps the number of statements (default 20, capped at 100).
+    - Read-only.
+    TEXT)]
 class DbSlowQueriesTool extends AbstractAgentTool
 {
     /**

@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -37,6 +38,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * a structured {available:false} payload.
  */
 #[Name('db_missing_fk_indexes')]
+#[Description(<<<'TEXT'
+    Find foreign-key columns that have no covering index, a common cause of slow joins and cascade operations. Use it when investigating foreign-key query performance.
+
+    Usage:
+    - Omit `table` to scan every table; provide `table` to scope the report.
+    - PostgreSQL and MySQL results are definitive; the SQLite result is heuristic and labelled as such.
+    - Read-only.
+    TEXT)]
 class DbMissingFkIndexesTool extends AbstractAgentTool
 {
     public function __construct(

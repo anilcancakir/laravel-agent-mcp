@@ -7,6 +7,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -25,6 +26,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  *   - Output rows redacted through OutputRedactor (best-effort defense-in-depth).
  */
 #[Name('db_query')]
+#[Description(<<<'TEXT'
+    Run a structured, parameterized read against one table on the read-only connection. Prefer this over db_raw_select for routine lookups; reach for db_raw_select only when the logic needs JOINs, subqueries, or aggregation the builder cannot express.
+
+    Usage:
+    - Confirm the table and columns with db_schema first; unknown tables, columns, or operators are rejected before any query runs.
+    - `query_type` selects the shape: find returns one row by id, where returns a filtered list, count returns an integer.
+    - Condition values are always bound as parameters, never concatenated into SQL.
+    - Results are capped at agent-mcp.query.max_rows and redacted. This is read-only; no write ever succeeds.
+    TEXT)]
 class DbQueryTool extends AbstractAgentTool
 {
     /**
@@ -54,7 +64,7 @@ class DbQueryTool extends AbstractAgentTool
 
             'conditions' => $schema->array()
                 ->nullable()
-                ->description('Array of condition objects. Each object must have column, operator and value.'),
+                ->description('Array of condition objects, each with column, operator, and value. Allowed operators: =, !=, <, >, <=, >=, like, in. Values are bound as parameters.'),
 
             'select' => $schema->array()
                 ->nullable()

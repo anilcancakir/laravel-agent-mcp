@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -35,6 +36,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * inherently a single instant in time.
  */
 #[Name('db_active_locks')]
+#[Description(<<<'TEXT'
+    Take a point-in-time snapshot of blocked and blocking sessions and the locks they hold. Use it when investigating lock contention, stuck queries, or deadlock symptoms.
+
+    Usage:
+    - Off by default; treat a denial as the expected default.
+    - Reflects the lock state at the instant of the call only; a lock may already be gone by the time you read the result. Treat it as a snapshot, not a live view.
+    - PostgreSQL reads pg_locks and pg_stat_activity (full visibility needs pg_monitor); MySQL reads PROCESSLIST and performance_schema; it returns {available:false} on SQLite.
+    - Read-only.
+    TEXT)]
 class DbActiveLocksTool extends AbstractAgentTool
 {
     /**

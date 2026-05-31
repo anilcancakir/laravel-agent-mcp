@@ -9,6 +9,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -35,6 +36,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * an exception.
  */
 #[Name('db_index_health')]
+#[Description(<<<'TEXT'
+    Report index coverage and health per table on the read-only connection. Use it when investigating slow queries or auditing index usage.
+
+    Usage:
+    - Omit `table` to scan every table; provide `table` to scope the report.
+    - PostgreSQL adds unused-index detection and a sequential-scan advisory; MySQL reads information_schema.STATISTICS; SQLite reads pragma_index_list.
+    - Pair with db_missing_fk_indexes for foreign keys lacking a covering index, and db_table_sizes for storage context.
+    - Read-only.
+    TEXT)]
 class DbIndexHealthTool extends AbstractAgentTool
 {
     public function __construct(

@@ -10,6 +10,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use PhpMyAdmin\SqlParser\Parser;
 use PhpMyAdmin\SqlParser\Statements\SelectStatement;
 
@@ -34,6 +35,15 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
  * the matched token, or the driver error, so a rejection cannot leak the schema, the
  * attempted query, or driver internals back to the agent.
  */
+#[Description(<<<'TEXT'
+    Run an ad-hoc read-only SELECT on the hardened read-only connection. Use this only for queries db_query cannot express (multi-table JOINs, subqueries, aggregates, window functions); use db_query for simple lookups.
+
+    Usage:
+    - Write a single valid SELECT or read-only CTE. A SELECT-only grammar validator rejects writes, stacked statements, and file functions before execution.
+    - A row LIMIT is applied automatically when you omit one (agent-mcp.query.max_rows).
+    - Call db_schema first to get exact table and column names.
+    - Read-only. Invalid SQL is refused with a generic error and never echoed back.
+    TEXT)]
 class DbRawSelectTool extends AbstractAgentTool
 {
     /**
