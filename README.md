@@ -1,289 +1,159 @@
+<!--
+keywords: Laravel MCP server, Model Context Protocol, Claude Code Laravel, Cursor Laravel,
+AI agent database access, read-only MCP, Laravel schema inspection, laravel ai agent tools,
+mcp server php, laravel db mcp, safe database access for ai agents, laravel mcp cli
+-->
+
 # laravel-agent-mcp
 
-A secure MCP (Model Context Protocol) server package for Laravel. It exposes a set of read-only tools that let an authenticated LLM agent inspect your database schema, run safe queries, read application logs, and invoke explicitly allowlisted artisan commands, all behind a server-admin key and a code-enforced read-only database boundary.
+A secure, read-only Model Context Protocol (MCP) server for Laravel. Give Claude Code, Cursor, and other AI coding agents safe live access to your app's database schema, queries, logs, queue, cache, routes, and config, instead of letting them guess from source files or stale training data.
 
-## What it does
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
+[![Tests](https://img.shields.io/github/actions/workflow/status/anilcancakir/laravel-agent-mcp/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/anilcancakir/laravel-agent-mcp/actions/workflows/ci.yml)
+[![Total Downloads](https://img.shields.io/packagist/dt/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
+[![PHP Version](https://img.shields.io/packagist/dependency-v/anilcancakir/laravel-agent-mcp/php?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
+[![License](https://img.shields.io/packagist/l/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](LICENSE)
 
-The package registers an MCP server on your Laravel application over HTTP (Streamable HTTP transport) and/or a local stdio bridge. Every tool is individually enable/disable-able: enable only what you want via `config('agent-mcp.tools.<name>')` in your published `config/agent-mcp.php`. Sensitive tools are off by default; the operator opts in.
+[Quick start](#quick-start) · [Why](#why-this-exists) · [Tools](#what-your-agent-can-see-25-read-only-tools) · [Two modes](#two-ways-to-connect-mcp-or-cli) · [Security](#security-model) · [FAQ](#faq)
 
-### v0.2.0 core tools
+```mermaid
+flowchart LR
+    A["AI coding agent<br/>(Claude Code, Cursor)"] -->|"MCP or CLI"| B["laravel-agent-mcp"]
+    B -->|"single Bearer key"| C{"read-only boundary"}
+    C -->|"SELECT-only + redaction + audit"| D[("your Laravel app<br/>DB, logs, queue, cache, routes")]
+```
 
-| Tool | What it does | Default state |
-|------|-------------|---------------|
-| `db_schema` | Lists tables, or returns columns, indexes, and foreign keys for a given table | Enabled |
-| `db_query` | Structured query builder: find/where/count with bound parameters | Enabled |
-| `db_raw_select` | Accepts a raw SQL SELECT, validates it via an allowlist parser, auto-applies a row limit, then executes on the read-only connection | Enabled |
-| `read_logs` | Tails the configured log channel, with an optional level filter and output redaction | Enabled |
-| `run_artisan` | Runs an artisan command from an explicit allowlist | Disabled by default; opt-in required |
+## Why this exists
 
-### v0.3.0 investigation tools
+Your AI coding agent writes migrations, queries, and config lookups against a schema it has never actually seen. It invents column names, assumes relationships that no longer match your tables, and reasons about a queue and cache it cannot observe. The result is plausible, confident, and wrong.
 
-Twenty additional read-only investigation tools grouped into four domains. Enable only what you want; sensitive tools are off by default.
+laravel-agent-mcp closes that gap. It exposes a read-only endpoint on your running Laravel app so the agent reads the real schema, the real routes, the real env-key names, and the current queue state. The agent stops guessing and starts working from live truth.
 
-#### Queue
+The reason it is safe to point an agent at: there are no write tools. Not "writes are disabled by default," they do not exist. The agent cannot call something that is not there. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
 
-| Tool | What it does | Default state |
-|------|-------------|---------------|
-| `queue_backlog` | Per-connection/queue pending job counts. Wraps `size()` per driver; database driver also counts strict-pending rows. | Enabled |
-| `queue_failed_jobs` | Summary counts and per-row details (job class, exception first line, failed\_at) from the failed jobs table. Raw payload is never emitted. | Enabled |
-| `horizon_status` | Horizon workload, metrics, and supervisor state. Returns `{available:false}` when Horizon is not installed. | Enabled (availability-gated) |
-
-#### Database health
-
-| Tool | What it does | Default state |
-|------|-------------|---------------|
-| `db_index_health` | Index list per table; PG adds unused-index detection (via `pg_stat_user_indexes`) and seq-scan advisory; MySQL uses `information_schema.STATISTICS`; SQLite uses `pragma_index_list`. | Enabled |
-| `db_missing_fk_indexes` | Finds foreign-key columns without a covering index. PG and MySQL give definitive results; SQLite result is heuristic (labelled). | Enabled |
-| `db_table_sizes` | Row counts and storage sizes per table. PG uses `pg_total_relation_size` + dead-tuple stats; MySQL uses `information_schema.TABLES` (estimates); SQLite probes `dbstat` then degrades gracefully. | Enabled |
-| `migrations_status` | Reads the `migrations` table (ran list + batches). Pending detection requires the filesystem and is not performed by this tool. | Enabled |
-| `db_slow_queries` | Top queries by mean execution time. PG requires `pg_stat_statements`; MySQL requires `performance_schema`. Returns `{available:false}` when the extension/schema is absent. | **Disabled by default** |
-| `db_active_locks` | Blocked/blocking queries and held locks at the moment of the call (point-in-time). PG uses `pg_locks + pg_stat_activity`; MySQL uses `information_schema.PROCESSLIST + performance_schema`. Returns `{available:false}` on SQLite. | **Disabled by default** |
-
-#### Cache
-
-| Tool | What it does | Default state |
-|------|-------------|---------------|
-| `cache_status` | Cache store config, optimization state (config/routes/events cached), opcache summary, and a `session_overlap_risk` flag when session and cache share the same Redis connection. | Enabled |
-| `cache_inspect` | Metadata (exists, TTL, value type) for a given cache key. The raw value is returned only when `cache.allow_value_read=true` AND the key does not match the key-name block-list; otherwise it is `[REDACTED]`. | Enabled (raw value gated) |
-| `cache_keys` | Lists cache keys with TTLs. Database driver queries the cache table; Redis uses SCAN (never KEYS) and excludes the session prefix to prevent live session IDs from leaking. | **Disabled by default** |
-
-#### App introspection
-
-| Tool | What it does | Default state |
-|------|-------------|---------------|
-| `list_routes` | All registered routes with methods, URI, name, controller, middleware (raw + resolved), and filters (`method`, `uri_prefix`, `name_pattern`, `middleware`, `exclude_middleware`). Middleware names only; no signed-route keys. | Enabled |
-| `inspect_route` | Deep dive on a single route (by name or URI): same shape as `list_routes` plus defaults. | Enabled |
-| `app_about` | Application versions, environment, debug flag, maintenance state, cache/driver/extension summary. Mirrors `php artisan about`. | Enabled |
-| `schedule_list` | All scheduled events: cron expression, command summary, next run time, flags (withoutOverlapping, onOneServer, etc.). | Enabled |
-| `event_list` | All registered event listeners including wildcards. Classifies string, Closure (file:line), and `[class, method]` listeners; flags `ShouldQueue` and `ShouldBroadcast` implementors. | Enabled |
-| `storage_info` | Filesystem disk config (driver, root, visibility) with credentials (`key/secret/password/token`) stripped; symlink map with liveness check. | Enabled |
-| `env_keys` | Names of all process environment variables (`array_keys($_ENV)`). Values are never returned. | Enabled |
-| `config_inspect` | Config key tree with types by default. Values are returned only when `reveal_values=true` AND the dot-path is in `config_inspect.safe_list` AND not matched by the block-list. The block-list always wins, even with explicit opt-in. | **Disabled by default** |
-
-Every tool call is audited and run through best-effort output redaction. DB tools access a read-only connection (code-enforced; a dedicated readonly DB user is strongly recommended).
-
-## Requirements
-
-- PHP `^8.3` (PHP 8.2 is untested: Pest 4, PHPUnit 12, and Testbench 11 all require ^8.3)
-- Laravel `11`, `12`, or `13`
-- `laravel/mcp` `>=0.6 <0.8` (pre-1.0, tightly pinned; see [Security model](#security-model) for the rationale)
-
-## Version matrix
-
-| PHP | Laravel | Supported |
-|-----|---------|-----------|
-| 8.3 | 11, 12, 13 | Yes |
-| 8.4 | 11, 12, 13 | Yes |
-| 8.5 | 11, 12, 13 | Yes |
-| 8.2 | any | Untested (toolchain requires ^8.3) |
-
-## Installation
+## Quick start
 
 ```bash
 composer require anilcancakir/laravel-agent-mcp
 ```
 
-Run the install command to choose your integration mode and publish the config and agent assets:
+Run the installer to pick a mode and publish the config and agent assets:
 
 ```bash
 php artisan agent-mcp:install
 # Sail / Herd: vendor/bin/sail artisan agent-mcp:install
 ```
 
-The command prompts you to pick a mode (default: `mcp`). To skip the prompt, pass `--mode` directly:
+Set a server key (the endpoint is fail-closed and returns `401` until this is set):
 
 ```bash
-php artisan agent-mcp:install --mode=mcp
+php -r "echo bin2hex(random_bytes(32));"   # generate a strong key
+```
+
+```dotenv
+# .env
+AGENT_MCP_KEY=paste-the-generated-key-here
+```
+
+Ask your agent something it could not have guessed:
+
+```bash
+php artisan agent-mcp:call db_schema '{"table":"users"}'
+echo '{"sql":"select count(*) as c from failed_jobs"}' | php artisan agent-mcp:call db_raw_select
+```
+
+That is the whole loop: install, set one key, and the agent has safe live context. The next section explains the two ways to wire it into an agent client.
+
+## Two ways to connect: MCP or CLI
+
+You do not have to register one more MCP server if you do not want to. The package works in two modes, and the installer records your choice in a committed `.agent-mcp.json` so your team, CI, and laravel-boost all resolve the same setup.
+
+```bash
+php artisan agent-mcp:install --mode=mcp   # default
 php artisan agent-mcp:install --mode=cli
 ```
 
-### Install modes
+**MCP mode (default).** Registers a full MCP server on your app over HTTP (and a local stdio bridge), prints the ready-to-paste `.mcp.json` blocks and the `claude mcp add` one-liner, and activates the `agent-mcp-investigation` boost skill. Use this when you want persistent, low-latency tool access across many turns of an interactive session.
 
-#### MCP mode (default)
+**CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server. Activates the `agent-mcp-cli` boost skill. Use this for one-off calls, scripts, CI pipelines, or when you do not want to expose an HTTP endpoint.
 
-Registers a full MCP server on your Laravel app and sets up the client configuration. This mode:
+> [!NOTE]
+> Commit `.agent-mcp.json`. It records the chosen mode (`{"mode":"mcp","version":1}`) for the whole team. When the file is absent (installs before v0.5.0), the package behaves as `mcp`, so upgrading is non-breaking.
 
-- Publishes `config/agent-mcp.php`, `AGENTS.md`, and `.mcp.json.example`
-- Prints ready-to-paste `.mcp.json` blocks (HTTP transport + stdio bridge) and the `claude mcp add` one-liner
-- Activates the `agent-mcp-investigation` boost skill (schema, queries, logs, artisan investigation workflow)
-
-Use this mode when you want persistent, low-latency tool access across many turns of an interactive agent session.
-
-#### CLI mode
-
-No MCP server registration required. The package's artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly. This mode:
-
-- Publishes `config/agent-mcp.php` and `AGENTS.md`
-- Prints `agent-mcp:call` / `agent-mcp:tools` usage examples (local in-process + remote via `AGENT_MCP_URL`)
-- Activates the `agent-mcp-cli` boost skill (CLI workflow guidance)
-
-Use this mode for one-off calls, scripts, CI pipelines, or when you do not want to register an HTTP endpoint.
-
-### Recording the mode: `.agent-mcp.json`
-
-The install command writes a `.agent-mcp.json` file at the project root:
-
-```json
-{
-    "mode": "mcp",
-    "version": 1
-}
-```
-
-**Commit this file.** It records the chosen mode for the whole team, CI, and laravel-boost. When the file is absent (existing installs before v0.5.0), the package behaves as if `mode` is `mcp`, so upgrading is non-breaking.
-
-Re-running `agent-mcp:install --mode=cli` (or `--mode=mcp`) overwrites the file. The command notes when the mode changes.
-
-### After install: wire boost
-
-Run `boost:install` (or `boost:update --discover`) so laravel-boost injects the active mode's skill and guideline into your agent context:
+After install, wire boost so it injects the active mode's skill and guideline:
 
 ```bash
 php artisan boost:install
 # or, if boost is already installed:
 php artisan boost:update --discover
-# Sail / Herd:
-vendor/bin/sail artisan boost:install
 ```
 
-See [Laravel Boost integration](#laravel-boost-integration) for details.
+## What your agent can see: 25 read-only tools
 
-### What is published
+Every tool is individually gated by `config('agent-mcp.tools.<name>')`. Sensitive tools are off by default; the operator opts in. Enable only what your agent use case needs.
 
-| File | MCP mode | CLI mode |
-|------|----------|----------|
-| `config/agent-mcp.php` | Yes | Yes |
-| `AGENTS.md` | Yes | Yes |
-| `.mcp.json.example` | Yes | Yes (harmless if unused) |
+### Database schema and queries
 
-## Mandatory: set the server key
+| Tool | What it does | Default |
+|------|-------------|---------|
+| `db_schema` | Lists tables, or returns columns, indexes, and foreign keys for one table. | On |
+| `db_query` | Structured reads: find by id, where filter, or count, with bound parameters. | On |
+| `db_raw_select` | Ad-hoc SELECT validated by a SELECT-only grammar parser, auto-limited, run read-only. | On |
+| `db_index_health` | Index inventory per table; PG adds unused-index detection and seq-scan advisory. | On |
+| `db_missing_fk_indexes` | Foreign-key columns without a covering index (PG and MySQL definitive, SQLite heuristic). | On |
+| `db_table_sizes` | Row counts and storage sizes; PG adds dead-tuple stats. | On |
+| `migrations_status` | Ran migrations grouped by batch (from the `migrations` table). | On |
+| `db_slow_queries` | Top queries by mean execution time (PG `pg_stat_statements`, MySQL `performance_schema`). | **Off** |
+| `db_active_locks` | Point-in-time blocked/blocking sessions (PG and MySQL). | **Off** |
 
-**The endpoint is fail-closed.** Every request returns `401` until `AGENT_MCP_KEY` is set to a non-empty string in your `.env`.
+### Logs and artisan
 
-Generate a strong key:
+| Tool | What it does | Default |
+|------|-------------|---------|
+| `read_logs` | Tails the log channel with an optional level filter and output redaction. | On |
+| `run_artisan` | Runs an artisan command from an exact, operator-defined allowlist. | **Off** (empty allowlist) |
 
-```bash
-php -r "echo bin2hex(random_bytes(32));"
-```
+### Queue
 
-Add it to `.env`:
+| Tool | What it does | Default |
+|------|-------------|---------|
+| `queue_backlog` | Pending job counts per connection and queue. | On |
+| `queue_failed_jobs` | Failed job summary or per-row detail (job class, exception first line, `failed_at`). Payload is never emitted. | On |
+| `horizon_status` | Horizon workload, metrics, and supervisor state. Returns `{available:false}` when Horizon is absent. | On |
 
-```
-AGENT_MCP_KEY=paste-generated-key-here
-```
+### Cache
 
-The client must send the key in every request as a standard Bearer header:
+| Tool | What it does | Default |
+|------|-------------|---------|
+| `cache_status` | Store config, optimization state, opcache summary, session-overlap risk flag. | On |
+| `cache_inspect` | Key metadata (exists, TTL, type); the raw value is gated behind `cache.allow_value_read` plus a block-list. | On (value gated) |
+| `cache_keys` | Lists cache keys with TTLs (database and Redis); excludes session keys. | **Off** |
 
-```
-Authorization: Bearer <your-key>
-```
+### Application introspection
 
-The header name defaults to `Authorization`. You can override it via `AGENT_MCP_KEY_HEADER` for non-standard clients (the middleware and stdio bridge both respect the configured name).
+| Tool | What it does | Default |
+|------|-------------|---------|
+| `list_routes` | All routes with methods, URI, name, controller, middleware, and filters. | On |
+| `inspect_route` | Deep dive on one route by name or URI. | On |
+| `app_about` | Versions, environment, drivers, opcache (mirrors `php artisan about`). | On |
+| `schedule_list` | Scheduled events with cron expression, next run, and flags. | On |
+| `event_list` | Registered listeners (including wildcards); flags `ShouldQueue` and `ShouldBroadcast`. | On |
+| `storage_info` | Disk config (credentials stripped) and symlink map. | On |
+| `env_keys` | Environment variable names only. Values are never returned. | On |
+| `config_inspect` | Config key tree with types; values are triple-gated (opt-in + safe-list + block-list). | **Off** |
 
-## Read-only database access
+Every call is audited (tool name and argument shape, never values) and passes through best-effort output redaction.
 
-All database access in this package goes through a read-only-hardened connection. The package enforces what it can in code:
+## How it works
 
-- A SELECT-only statement validator rejects any non-SELECT SQL.
-- Per-engine session hardening is applied once per connection: `PRAGMA query_only = ON` (SQLite), `SET default_transaction_read_only = on` (PostgreSQL), `SET SESSION max_execution_time = <ms>` (MySQL).
-- `PDO::ATTR_EMULATE_PREPARES` is asserted `false` on every connection (emulated prepares allow stacked queries; the package refuses to run against one).
+1. The agent (or your shell) calls a tool by name with a JSON argument object.
+2. In MCP mode, the HTTP route checks the single Bearer key first and fails closed. In CLI mode, shell access is the trust boundary.
+3. The tool runs read-only: database reads go through a hardened read-only connection, `db_raw_select` passes a SELECT-only validator, and output is redacted.
+4. The result returns as JSON. In CLI mode, content goes to stdout, diagnostics to stderr, and the exit code reflects whether the tool reported an error.
 
-**A dedicated readonly DB user is strongly recommended as an additional defense layer.** The code-level boundary is real, but a database grant is an independent control that protects you even if a bug bypasses the application layer.
-
-### MySQL caveat
-
-MySQL has no per-session read-only mode for a normal user. On MySQL, the write boundary is the code layer (SELECT validator + query builder). A readonly GRANT is especially important on MySQL:
-
-```sql
-CREATE USER 'agent_readonly'@'localhost' IDENTIFIED BY 'strong-password-here';
-GRANT SELECT ON your_database.* TO 'agent_readonly'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-Do NOT grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE`, `DROP`, or any write privilege. Keep `secure_file_priv` configured on the MySQL server.
-
-### PostgreSQL
-
-```sql
-CREATE ROLE agent_readonly LOGIN PASSWORD 'strong-password-here';
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT SELECT ON TABLES TO agent_readonly;
-```
-
-Do NOT add the role to `pg_read_server_files` (it allows arbitrary file reads via `COPY ... FROM` and `pg_read_file()`). Do NOT grant `COPY` or `lo_*` (large object) privileges. Do NOT add the role to `pg_execute_server_program`.
-
-#### Additional grants for full DB-health visibility (PostgreSQL)
-
-The `db_slow_queries` and `db_active_locks` tools query `pg_stat_statements` and `pg_stat_activity`/`pg_locks`. These views require elevated privileges beyond the base `SELECT` grant above. For full visibility, grant the built-in monitoring roles:
-
-```sql
-GRANT pg_monitor TO agent_readonly;
--- or, if your PostgreSQL version does not have pg_monitor (pre-10):
-GRANT pg_read_all_stats TO agent_readonly;
-```
-
-`pg_monitor` covers `pg_stat_activity`, `pg_stat_replication`, `pg_stat_ssl`, and `pg_stat_gssapi`. `pg_read_all_stats` covers `pg_stat_activity` and `pg_statistic`. Without these grants, `db_active_locks` and `db_slow_queries` return partial or empty results.
-
-**Point-in-time caveat**: `db_active_locks` reflects the lock state at the exact instant the query runs. A lock that existed before the call may be gone by the time you read the output. Use the result as a snapshot, not a continuous view.
-
-**Privilege-dependent partial results**: if the readonly role lacks `pg_monitor`/`pg_read_all_stats`, `db_slow_queries` may return rows with `NULL` query text, and `db_active_locks` may omit rows visible only to superusers. Both tools note this in their output.
-
-**`pg_stat_statements` must be enabled**: `db_slow_queries` on PostgreSQL detects the extension via `pg_extension` at call time and returns `{available:false, reason:"pg_stat_statements not enabled"}` when it is absent. Enable it in `postgresql.conf` (`shared_preload_libraries = 'pg_stat_statements'`) and restart; the tool then works without further config.
-
-#### Additional grants for full DB-health visibility (MySQL)
-
-`db_slow_queries` queries `performance_schema.events_statements_summary_by_digest`. The readonly user must have access to `performance_schema`:
-
-```sql
-GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-Without this grant, `db_slow_queries` returns `{available:false}` on MySQL.
-
-### SQLite
-
-SQLite has no user/grant system. The package sets `PRAGMA query_only = ON` at connection time. For defense-in-depth, also open the database file in read-only mode via the DSN:
-
-```php
-'readonly' => [
-    'driver'   => 'sqlite',
-    'database' => database_path('your.sqlite'),
-    'foreign_key_constraints' => true,
-    'options'  => [
-        \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY,
-    ],
-],
-```
-
-### Connecting to the readonly user
-
-When you provision a readonly DB user, add a dedicated connection in `config/database.php`:
-
-```php
-'readonly' => [
-    'driver'   => 'mysql',  // or 'pgsql' or 'sqlite'
-    'host'     => env('DB_HOST', '127.0.0.1'),
-    'database' => env('DB_DATABASE', 'laravel'),
-    'username' => env('DB_READONLY_USERNAME', 'agent_readonly'),
-    'password' => env('DB_READONLY_PASSWORD', ''),
-],
-```
-
-Then point `agent-mcp.connection` at it:
-
-```
-AGENT_MCP_DB_CONNECTION=readonly
-```
-
-When `connection` is null (the default), the package clones the app's default connection into an ephemeral `agent-mcp-readonly` connection and hardens the clone. The shared default connection is never modified.
-
-## Client setup
+## Client setup (MCP mode)
 
 ### HTTP transport (remote / production)
-
-Add to your `.mcp.json` (Claude Code, Cursor, and other clients that support HTTP transport):
 
 ```json
 {
@@ -291,25 +161,21 @@ Add to your `.mcp.json` (Claude Code, Cursor, and other clients that support HTT
         "agent-mcp": {
             "type": "http",
             "url": "https://your-app.com/agent-mcp",
-            "headers": {
-                "Authorization": "Bearer YOUR_KEY_HERE"
-            }
+            "headers": { "Authorization": "Bearer YOUR_KEY_HERE" }
         }
     }
 }
 ```
 
-Or register it with the Claude CLI (required when using Laravel Boost; see below):
+Or register it with the Claude CLI (required when using Laravel Boost):
 
 ```bash
 claude mcp add --transport http https://your-app.com/agent-mcp --header "Authorization: Bearer YOUR_KEY_HERE"
 ```
 
-### stdio bridge transport (remote bridge for Claude Desktop)
+### stdio bridge (Claude Desktop)
 
-**Claude Desktop** does not natively support custom HTTP headers. Use the built-in `agent-mcp:stdio` bridge instead of the `mcp-remote` shim. The bridge is a local artisan process that reads JSON-RPC lines from stdin, forwards each one to the remote HTTP endpoint with the Bearer key, and writes the reply to stdout.
-
-Add to your `.mcp.json`:
+Claude Desktop does not send custom HTTP headers. Use the built-in `agent-mcp:stdio` bridge: a local artisan process that reads JSON-RPC from stdin, forwards each line to the remote endpoint with the Bearer key, and writes the reply to stdout. The key travels only in the Authorization header (never to stdout or stderr), and TLS verification is always on.
 
 ```json
 {
@@ -327,224 +193,185 @@ Add to your `.mcp.json`:
 }
 ```
 
-The `env` block is operator-set. The bridge never writes the key to stdout or stderr, and TLS verification is always on.
+## CLI usage (CLI mode)
 
-## CLI usage (no MCP server required)
-
-If you only occasionally need these tools, you do not have to register an MCP server in your
-agent client. The package ships three artisan commands that call the tools directly from the
-shell. They honor the same per-tool enable flags, audit log, and best-effort redaction as the
-HTTP endpoint.
-
-- `php artisan agent-mcp:tools` lists the tools you can call (`--all` includes ones disabled
-  in config, flagged `enabled: false`).
-- `php artisan agent-mcp:schema <tool>` prints a tool's input schema.
-- `php artisan agent-mcp:call <tool> [<json>]` invokes a tool. Pass arguments as a JSON object
-  positionally or on STDIN; the JSON result prints to stdout (raw when piped, pretty on a
-  terminal, or force raw with `--raw`); diagnostics go to stderr; the exit code is non-zero on
-  a tool error.
+Three commands call the tools directly, honoring the same per-tool flags, audit log, and redaction as the HTTP endpoint:
 
 ```bash
+php artisan agent-mcp:tools                 # list callable tools (--all includes disabled ones)
+php artisan agent-mcp:schema db_query       # print a tool's input schema
 php artisan agent-mcp:call db_schema '{"table":"users"}'
-echo '{"sql":"select count(*) as c from users"}' | php artisan agent-mcp:call db_raw_select
 php artisan agent-mcp:call app_about --raw | jq '.environment'
 ```
 
-For a Sail or Herd project use the project's artisan form (for example
-`vendor/bin/sail artisan agent-mcp:call ...`).
+By default the command runs the tool in-process (local mode). Set `AGENT_MCP_URL` and `AGENT_MCP_KEY` to forward the call to a remote endpoint (remote mode is auto-selected when `AGENT_MCP_URL` is present; `--local` and `--remote` force the choice). The key travels only in the Authorization header, never in command output.
 
-### Local vs remote mode
+> [!WARNING]
+> Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`, `run_artisan`) can land in terminal scrollback. `agent-mcp:call` refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`; piping or redirecting is always allowed. Do not add `agent-mcp:*` to the `run_artisan` allowlist.
 
-By default the commands run the tool in-process against the current application (local mode).
-Set `AGENT_MCP_URL` (the remote `/agent-mcp` URL) and `AGENT_MCP_KEY` (the server key) to
-forward the call to a remote endpoint instead; remote mode is auto-selected when
-`AGENT_MCP_URL` is present, and `--local` / `--remote` force the choice. The key travels only
-in the Authorization header, never in command output.
+## Security model
 
-### CLI vs registering the MCP server
+Read this before deploying to production. The read-only guarantee is not a single flag; it is several independent layers, so a failure in one does not breach the boundary.
 
-Use the CLI for one-off calls, scripts, CI, or any context where the MCP server is not
-registered in the client. Register the MCP server (HTTP route or the stdio bridge above) when
-you want persistent, low-latency tool access across many turns of an interactive session.
+### Authentication: fail-closed server key
 
-### CLI security notes
+The endpoint is protected by a single server-admin key (`AGENT_MCP_KEY`), not Sanctum, not a user model, not a database table. The check is fail-closed: when the key is unset or empty, every request is rejected with `401` before any comparison runs (this closes the `hash_equals('', '')` fail-open). The comparison is constant-time. The key is read only from server config/env; the stdio bridge sources it only from operator-set ENV, never from request data.
 
-- The local CLI runs without the server-admin key: shell access to the application is the
-  trust boundary. The master `agent-mcp.enabled` switch and the per-tool flags still apply.
-- Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`,
-  `run_artisan`) are off by default. When enabled, their CLI output can land in terminal
-  scrollback and shell history, which the key-guarded HTTP path does not expose. `agent-mcp:call`
-  refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`;
-  piping or redirecting is always allowed.
-- Do NOT add `agent-mcp:*` commands to the `run_artisan` allowlist; allowlisting the CLI itself
-  would let a tool re-invoke the CLI.
+The header defaults to `Authorization`. Override it with `AGENT_MCP_KEY_HEADER` for non-standard clients.
+
+### Read-only database boundary
+
+1. A SELECT-only statement validator rejects any non-SELECT SQL, parsed as a token tree (not a regex), so stacked statements and file functions are refused.
+2. Per-engine session hardening is applied once per connection: `PRAGMA query_only = ON` (SQLite), `SET default_transaction_read_only = on` (PostgreSQL), `SET SESSION max_execution_time = <ms>` (MySQL). `PDO::ATTR_EMULATE_PREPARES` is asserted `false` (emulated prepares allow stacked queries).
+3. On the default-connection fallback, the package clones the connection config into an ephemeral `agent-mcp-readonly` connection and hardens the clone only; the shared default connection is never mutated.
+4. A dedicated readonly DB user (strongly recommended) is an independent, grant-level boundary that holds even if the application layer has a bug.
+
+> [!NOTE]
+> MySQL has no per-session read-only mode for a normal user, so a readonly GRANT matters most there. See [Read-only database access](#read-only-database-access) below for the exact MySQL, PostgreSQL, and SQLite grants.
+
+### Redaction is best-effort, not a guarantee
+
+Output redaction replaces detected secrets (emails, Bearer tokens, JWTs, AWS keys, card numbers, password-like pairs) with `[REDACTED]` in every tool response. It is defense-in-depth, not the boundary: novel or encoded secrets pass through, and an LLM can be instructed to exfiltrate in ways redaction cannot catch. The read-only grant is what prevents writes and file reads; redaction only reduces accidental exposure in output.
+
+### app.debug warning
+
+Never expose the endpoint with `APP_DEBUG=true`. The package strips stack traces from MCP error responses regardless of the flag, but Laravel debug pages and toolbars can leak config, bindings, and env to any client that reaches the endpoint. Set `APP_DEBUG=false` in production, or restrict the endpoint to an internal network during local debugging.
+
+### Sensitive-tool opt-in model
+
+`config_inspect`, `db_slow_queries`, `db_active_locks`, and `cache_keys` are off by default because they can surface sensitive information. Value-returning tools (`config_inspect`, `cache_inspect`) gate values twice: an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then a block-list that unconditionally redacts known-sensitive dot-paths. The block-list always wins, even with explicit opt-in.
+
+## Read-only database access
+
+All database access goes through a read-only-hardened connection. A dedicated readonly DB user is strongly recommended as an independent control.
+
+### PostgreSQL
+
+```sql
+CREATE ROLE agent_readonly LOGIN PASSWORD 'strong-password-here';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
+```
+
+Do not add the role to `pg_read_server_files`, do not grant `COPY` or `lo_*` (large object) privileges, and do not add it to `pg_execute_server_program`. For full `db_slow_queries` and `db_active_locks` visibility, grant `pg_monitor` (or `pg_read_all_stats` on pre-10), and enable `pg_stat_statements` in `postgresql.conf`.
+
+### MySQL
+
+```sql
+CREATE USER 'agent_readonly'@'localhost' IDENTIFIED BY 'strong-password-here';
+GRANT SELECT ON your_database.* TO 'agent_readonly'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Do not grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE`, or `DROP`. For `db_slow_queries`, also `GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';`.
+
+### SQLite
+
+SQLite has no grant system. The package sets `PRAGMA query_only = ON`; for defense-in-depth, open the file read-only via the DSN:
+
+```php
+'readonly' => [
+    'driver'   => 'sqlite',
+    'database' => database_path('your.sqlite'),
+    'options'  => [\PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY],
+],
+```
+
+### Pointing the package at a readonly connection
+
+Add a `readonly` connection to `config/database.php`, then set:
+
+```dotenv
+AGENT_MCP_DB_CONNECTION=readonly
+```
+
+When `connection` is null (the default), the package clones the app's default connection into a hardened ephemeral `agent-mcp-readonly` connection; the shared default is never modified.
 
 ## Laravel Boost integration
 
-The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically. Which skill and which guideline branch are active depends on the mode recorded in `.agent-mcp.json` (written by `agent-mcp:install`).
+The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically. Which skill and guideline branch are active depends on the mode in `.agent-mcp.json`.
 
 | Asset | Active in |
 |-------|-----------|
 | `resources/boost/skills/agent-mcp-investigation/SKILL.blade.php` | MCP mode |
 | `resources/boost/skills/agent-mcp-cli/SKILL.blade.php` | CLI mode |
-| `resources/boost/guidelines/core.blade.php` | Both (mode-branched internally) |
+| `resources/boost/guidelines/core.blade.php` | Both (mode-branched) |
 
-Run `boost:install` (or `boost:update --discover`) after `agent-mcp:install` to inject the active mode's skill and guideline:
+Full mode-filtering (only the active mode's skill is injected) needs a boost version with `SKILL.blade.php` support. On older boost, both `SKILL.md` fallbacks install unfiltered (functional, not mode-tailored). Boost does not auto-wire third-party MCP servers ([laravel/boost#522](https://github.com/laravel/boost/issues/522)); bind the server via `agent-mcp:install` or `claude mcp add`.
 
-```bash
-php artisan boost:install
-# or, if boost is already installed:
-php artisan boost:update --discover
-# Sail / Herd:
-vendor/bin/sail artisan boost:install
-```
+## How this compares
 
-**Boost does not auto-wire third-party MCP servers** (laravel/boost#522). The MCP binding must be done separately via `agent-mcp:install` or `claude mcp add` (see Client setup above).
+laravel-agent-mcp is complementary to the official Laravel AI packages, not a replacement.
 
-### Laravel Boost version note
+| | laravel-agent-mcp | laravel/mcp | laravel/boost | raw read-only DB user |
+|---|---|---|---|---|
+| Purpose | Give agents read-only access to a running app | SDK to build your own MCP server | Dev-time agent context on localhost | Direct SQL access |
+| Ready-made tools | 25 (DB, logs, queue, cache, routes, config) | None (you build them) | ~15 dev tools | None |
+| Read-only enforcement | SELECT validator + hardened connection + redaction | You implement it | DB query tool runs any SQL | DB grant only |
+| Auth | Single Bearer key, no Sanctum/user/DB | Sanctum / OAuth (your wiring) | Local stdio, no auth | DB credentials |
+| CLI + remote | Yes (`agent-mcp:call`, local and remote) | Local stdio | Local stdio | n/a |
+| Boost skill shipped | Yes | n/a | n/a | No |
+| Production-safe remote | Yes | Depends on your wiring | Dev-only | Yes, but raw SQL |
 
-Full mode-filtering (only the active mode's skill is injected) requires the **boost v2.4.x line** that includes `SKILL.blade.php` support (PR #627). On older boost versions, both `SKILL.md` fallbacks are installed unfiltered (both skills active, guideline is the full superset). This is functional but not mode-tailored.
+### Not for you if
 
-To check your installed boost version:
+- You need the agent to write to the database. This package has no write tools by design.
+- You are building a custom MCP server with your own domain tools. Use `laravel/mcp` directly.
+- You only need local dev-time context and already run `laravel/boost`. Boost may be enough on its own.
 
-```bash
-composer show laravel/boost | grep versions
-```
+## FAQ
 
-If you are on a pre-v2.4.x boost and want mode-filtering, upgrade boost first:
+### How do I give Claude Code read-only access to my Laravel database?
 
-```bash
-composer require laravel/boost:^2.4
-php artisan boost:update --discover
-```
+Install the package, run `php artisan agent-mcp:install`, set `AGENT_MCP_KEY` in `.env`, and add the printed `.mcp.json` block to Claude Code (or run `claude mcp add`). The agent then calls `db_schema`, `db_query`, and `db_raw_select`, all read-only.
 
-## Custom authentication
+### Is this safe to use against a production database?
 
-The default auth is a single server-admin key enforced by `KeyAuthMiddleware`. To replace it with your own auth scheme, swap the middleware in `config/agent-mcp.php`:
+Yes, with the documented setup: set `APP_DEBUG=false`, use a dedicated readonly DB user, and keep sensitive tools off. There are no write tools, database reads run on a read-only-hardened connection, and `db_raw_select` is validated SELECT-only. Treat redaction as a bonus, not the boundary.
 
-```php
-'middleware' => [
-    App\Http\Middleware\YourOwnAuthMiddleware::class,
-    'throttle:agent-mcp',
-],
-```
+### Can the agent write to or delete from my database?
 
-Your middleware is the full auth boundary. The package does not impose any additional identity or ability check beyond what your middleware enforces.
+No. The package defines no write tools, so there is nothing to call. The read-only connection and SELECT-only validator are additional independent layers, and a readonly DB grant is the recommended final control.
 
-## Config reference
+### Do I need Laravel Sanctum or a user table?
 
-After publishing, `config/agent-mcp.php` contains the following keys:
+No. Auth is a single server-admin key in `.env`. It works on a fresh server, in CI, and on staging before any user tables exist. You can swap in your own middleware if you prefer.
 
-| Key | Default | Description |
+### Does this work with Cursor and other MCP clients?
+
+Yes. Any client that supports HTTP MCP transport works with the HTTP endpoint. Claude Desktop (no custom headers) uses the built-in `agent-mcp:stdio` bridge.
+
+### How is this different from Laravel Boost?
+
+Boost is a dev-time tool for coding agents on your local machine, and its database query tool can run any SQL. laravel-agent-mcp is a production-safe, read-only, key-authenticated server with a 25-tool ops suite and a CLI, designed for remote and server-admin use. They are complementary.
+
+### What databases are supported?
+
+MySQL, PostgreSQL, and SQLite. MariaDB is not officially supported because its statement-timeout syntax differs from MySQL's.
+
+## Requirements
+
+| PHP | Laravel | laravel/mcp |
 |-----|---------|-------------|
-| `enabled` | `true` | Master switch. When false, the package is completely inert. |
-| `auto_register` | `true` | When true, the service provider calls `Mcp::web()` and `Mcp::local()` at boot. Set false to wire the server manually in `routes/ai.php`. This is a convenience toggle, not a security control. |
-| `key` | `null` (env `AGENT_MCP_KEY`) | Server-admin key. The endpoint is fail-closed: null or empty means every request returns 401 before any comparison runs. |
-| `key_header` | `'Authorization'` (env `AGENT_MCP_KEY_HEADER`) | HTTP header the middleware reads the Bearer token from. Override for non-standard clients. |
-| `route` | `'agent-mcp'` | HTTP route prefix for the MCP endpoint (`/agent-mcp`). |
-| `middleware` | `[KeyAuthMiddleware::class, 'throttle:agent-mcp']` | Middleware applied to the HTTP route. Replace `KeyAuthMiddleware` to use a custom auth scheme. |
-| `transports.http` | `true` | Enable the HTTP (Streamable HTTP) transport. |
-| `transports.stdio` | `true` | Enable the local stdio (artisan) transport. |
-| `connection` | `null` (env `AGENT_MCP_DB_CONNECTION`) | The `config/database.php` connection name for all DB access. Null falls back to the app default connection with code-enforced read-only. A dedicated readonly-grant user is strongly recommended. |
-| `tools.db_schema` | `true` | Enable/disable the `db_schema` tool. |
-| `tools.db_query` | `true` | Enable/disable the `db_query` tool. |
-| `tools.db_raw_select` | `true` | Enable/disable the `db_raw_select` tool. |
-| `tools.read_logs` | `true` | Enable/disable the `read_logs` tool. |
-| `tools.run_artisan` | `false` | Enable/disable `run_artisan`. Off by default; configure `artisan.allowlist` before enabling. |
-| `tools.queue_backlog` | `true` | Enable/disable `queue_backlog`. |
-| `tools.queue_failed_jobs` | `true` | Enable/disable `queue_failed_jobs`. |
-| `tools.horizon_status` | `true` | Enable/disable `horizon_status`. Returns `{available:false}` automatically when Horizon is not installed. |
-| `tools.db_index_health` | `true` | Enable/disable `db_index_health`. |
-| `tools.db_missing_fk_indexes` | `true` | Enable/disable `db_missing_fk_indexes`. |
-| `tools.db_table_sizes` | `true` | Enable/disable `db_table_sizes`. |
-| `tools.migrations_status` | `true` | Enable/disable `migrations_status`. |
-| `tools.db_slow_queries` | `false` | Enable/disable `db_slow_queries`. Off by default; requires `pg_stat_statements` (PG) or `performance_schema` (MySQL). |
-| `tools.db_active_locks` | `false` | Enable/disable `db_active_locks`. Off by default; point-in-time snapshot; requires `pg_monitor` or equivalent for full PG visibility. |
-| `tools.cache_status` | `true` | Enable/disable `cache_status`. |
-| `tools.cache_inspect` | `true` | Enable/disable `cache_inspect`. Raw value delivery is separately gated by `cache.allow_value_read`. |
-| `tools.cache_keys` | `false` | Enable/disable `cache_keys`. Off by default; excluded session-prefix keys to avoid leaking session IDs. |
-| `tools.list_routes` | `true` | Enable/disable `list_routes`. |
-| `tools.inspect_route` | `true` | Enable/disable `inspect_route`. |
-| `tools.app_about` | `true` | Enable/disable `app_about`. |
-| `tools.schedule_list` | `true` | Enable/disable `schedule_list`. |
-| `tools.event_list` | `true` | Enable/disable `event_list`. |
-| `tools.storage_info` | `true` | Enable/disable `storage_info`. Disk credentials are stripped from the output; root paths are reported as-is. |
-| `tools.env_keys` | `true` | Enable/disable `env_keys`. Emits key names only; values are never returned. |
-| `tools.config_inspect` | `false` | Enable/disable `config_inspect`. Off by default; exposes the full config key tree. Values require explicit opt-in plus safe-list. |
-| `artisan.allowlist` | `[]` | Exact command names the agent may run. Empty array means the tool is effectively off regardless of the tool flag. Substring matching and wildcards are not supported. |
-| `cache.allow_value_read` | `false` | When `true`, `cache_inspect` may return a raw cached value if the key also passes the key-name block-list. Default `false` keeps raw values gated off. Set via env `AGENT_MCP_CACHE_ALLOW_VALUE_READ`. |
-| `config_inspect.block_list` | (see config) | Dot-path substring tokens that unconditionally redact a config value. Defaults cover `password`, `passwd`, `secret`, `key`, `token`, `auth`, `credential`, `private`, `dsn`, `url`, `cipher`, `salt`, `cert`, `pass`, `webhook`, `client_secret`. The block-list always wins over `safe_list`. |
-| `config_inspect.safe_list` | `[]` | Exact dot-paths whose values `config_inspect` is allowed to reveal when `reveal_values=true` and the path is not block-listed. Empty by default; the operator must explicitly add paths here. |
-| `query.max_rows` | `100` | Upper bound on rows returned by `db_query`; auto-applied as LIMIT on `db_raw_select` queries that omit one. |
-| `query.statement_timeout_ms` | `5000` | Per-statement execution cap applied at the DB session layer (MySQL: `max_execution_time`, PostgreSQL: `statement_timeout`, SQLite: `query_only` pragma). |
-| `logs.channel` | `null` | Logging channel whose file `read_logs` tails. Null resolves the active default channel at runtime. |
-| `logs.max_lines` | `200` | Upper bound on lines returned per `read_logs` call. |
-| `redaction.enabled` | `true` | Enable best-effort output redaction. See Security model below. |
-| `redaction.patterns` | (see config) | List of PCRE regexes; each match is replaced with `[REDACTED]`. Defaults cover emails, Bearer tokens, JWTs, AWS keys, credit card numbers, and password-like key/value pairs. |
-| `audit.enabled` | `true` | Record tool invocations (tool name, argument shape, timestamp) to the audit channel. Argument values are never logged. |
-| `audit.channel` | `'agent-mcp-audit'` | Laravel logging channel for audit entries. |
+| 8.3, 8.4, 8.5 | 11, 12, 13 | `>=0.6 <0.8` |
 
-## Security model
+The `laravel/mcp` pin is intentional: it is pre-1.0 with breaking changes between minors, so the tight constraint prevents silent upgrades to an incompatible API. Check the changelog before widening it.
 
-Understanding this section is important before deploying the package to production.
+## For AI agents
 
-### Authentication: fail-closed server key
+This repository is AI-readiness aware:
 
-The MCP endpoint is protected by a single server-admin key (`AGENT_MCP_KEY`). The check is fail-closed: when the key is unset or empty, every request is rejected with `401` before any comparison runs. This closes the `hash_equals('', '')` fail-open (two empty strings compare equal). The comparison is constant-time (`hash_equals`).
+- [`llms.txt`](llms.txt): a machine-readable index of what the package is and where its docs live.
+- The published `AGENTS.md` (via `agent-mcp:install`) tells coding agents how to use the tools in a consumer project.
 
-The key is read only from server config/env. The `agent-mcp:stdio` bridge sources it only from operator-set ENV (`AGENT_MCP_KEY` in the `.mcp.json` `env` block), never from stdin data, so a malicious peer cannot redirect the credential.
+## Contributing
 
-### Read-only database boundary
+Issues and pull requests are welcome. Run the suite with `composer test`, the linter with `vendor/bin/pint`, and static analysis with `composer analyse` before opening a PR. Tests ship green on PHP 8.3 to 8.5, Laravel 11 to 13, and both laravel/mcp 0.6 and 0.7.
 
-The read-only guarantee rests on multiple layers:
+## Security vulnerabilities
 
-1. A SELECT-only statement validator rejects non-SELECT SQL at the application layer (defense-in-depth for `db_raw_select`).
-2. Per-engine session hardening (see above) applies an engine-level read-only flag or timeout on every resolved connection.
-3. On the default-connection fallback path, the package clones the default connection config into an ephemeral `agent-mcp-readonly` connection and hardens the clone only, so the app's shared default connection is never mutated.
-4. A dedicated readonly DB user (strongly recommended) provides an independent, grant-level enforcement boundary that protects against application-layer bugs.
-
-### v0.3.0 investigation tools: operator opt-in model
-
-The twenty new investigation tools are read-only by design. A number of them expose information that may be sensitive in your environment: config values, env key names, cache data, slow-query text, active lock holders, and storage disk layout. The security model for these tools has two layers:
-
-1. **Per-tool toggle**: every new tool is individually gated by its `tools.*` config flag. Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`) default to off. Enable only the tools you actually need for your agent use case.
-2. **Value gating before redaction**: for tools that can return values (primarily `config_inspect` and `cache_inspect`), value delivery is gated first by an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then by a block-list that unconditionally redacts known-sensitive dot-paths (`url`, `dsn`, `key`, `password`, `secret`, and more). Output redaction runs after these gates as a final net, not as the primary guard. Redaction alone is never sufficient.
-
-Optional backends (`horizon_status`, `db_slow_queries` PG path, Redis paths in `cache_keys`) are detect-then-use: the tool interrogates whether the backend is available at call time and returns `{available:false}` when it is not. No exception is thrown; no package-level hard dependency is added.
-
-**Queue and cache table reads use the configured store connection.** The DB-health tools (`db_index_health`, `db_table_sizes`, etc.) and `db_query`/`db_raw_select` route every read through the hardened read-only connection. By contrast `queue_backlog`, `queue_failed_jobs`, `cache_inspect`, and `cache_keys` read the `jobs`/`failed_jobs`/cache tables on the connection those stores are actually configured to use (`queue.connections.*.connection`, `queue.failed.database`, `cache.stores.*.connection`), which may differ from the read-only clone. These reads use read-only query-builder methods only (no write or mutating call exists anywhere in the package), but they do not carry the per-engine read-only session flag or statement timeout that the hardened connection applies. The independent enforcement boundary here is the dedicated readonly DB user (strongly recommended above): grant-level read-only access covers these reads regardless of the application-layer connection.
-
-### Redaction is best-effort, not a guarantee
-
-Output redaction is enabled by default and applies to all tool responses: query results, schema output, and log lines. It replaces detected secrets with `[REDACTED]`.
-
-**Redaction is best-effort defense-in-depth. It is NOT a security guarantee and does NOT replace the read-only grant.**
-
-Reasons this matters:
-
-- Legitimately stored data that matches a redaction pattern (for example, an email column) will be redacted, but that is the expected trade-off.
-- Novel or obfuscated secret formats will pass through undetected.
-- Data stored in a format the redaction patterns do not recognise (encoded, split across columns, etc.) will not be caught.
-- An LLM can be instructed by malicious data to exfiltrate information in ways that bypass redaction.
-
-The read-only grant is what prevents the agent from writing, deleting, or reading server files. Redaction is an additional layer to reduce accidental exposure in tool output. Do not rely on redaction as the sole protection for sensitive data.
-
-### app.debug warning
-
-**Never expose the MCP endpoint when `app.debug=true`.**
-
-The package strips stack traces from MCP error responses regardless of the debug flag. However, with debug mode enabled, Laravel error pages, exception handlers, and debug toolbars can leak configuration values, stack traces, query bindings, and environment variables to any client that can reach the endpoint, including the connected LLM agent.
-
-Set `APP_DEBUG=false` in production. If you need debug mode for local development, restrict the endpoint to localhost or an internal network.
-
-### Supported laravel/mcp range and pre-1.0 note
-
-This package pins `laravel/mcp` to `>=0.6 <0.8`. The `laravel/mcp` package is pre-1.0 and has breaking changes between minor versions. The tight pin is intentional: it prevents silent upgrades to an incompatible minor that could change the tool API, transport behaviour, or authentication flow.
-
-When a new `laravel/mcp` minor is released, check the changelog before widening the constraint. Update tests against the new version before deploying.
-
-Supported database engines: **MySQL**, **PostgreSQL**, **SQLite**. MariaDB is not officially supported: the statement timeout mechanism uses MySQL's `max_execution_time` syntax, which is incompatible with MariaDB's `max_statement_time` (different units and syntax). Using MariaDB without additional configuration may result in timeout statements being ignored silently.
+Please report security issues through GitHub's private vulnerability reporting on this repository rather than a public issue.
 
 ## License
 
-MIT
+The MIT License (MIT). See [LICENSE](LICENSE) for details.
