@@ -25,6 +25,10 @@ final class ConfigInspectStubServer extends Server
 // appear in the tool output: the *url* path is block-listed by default.
 const CONFIG_DSN_SECRET = 'super-secret-dsn-password-9999';
 
+// A recognizable APP_KEY value. The "key" block-list token matches the "app.key"
+// path, so this MUST stay redacted even when the caller safe-lists it explicitly.
+const CONFIG_APP_KEY_SECRET = 'APP_KEY_MARKER_AbCdEf0123456789';
+
 beforeEach(function (): void {
     // laravel/mcp's provider populates the injected Request via method injection.
     app()->register(McpServiceProvider::class);
@@ -89,6 +93,25 @@ it('keeps a url/dsn path redacted even with reveal_values and an explicit safe_k
     ])->assertOk();
 
     $response->assertDontSee(CONFIG_DSN_SECRET);
+    $response->assertSee('[REDACTED]');
+});
+
+// --- APP_KEY (the highest-value secret) stays redacted even when safe-listed ---
+
+it('keeps app.key redacted even with reveal_values and an explicit safe_keys entry', function (): void {
+    config()->set('app.key', 'base64:'.CONFIG_APP_KEY_SECRET);
+
+    $response = ConfigInspectStubServer::tool(ConfigInspectTool::class, [
+        'key' => 'app',
+        'reveal_values' => true,
+        'safe_keys' => [
+            'app.key',
+        ],
+    ])->assertOk();
+
+    // The block-list token "key" matches the "app.key" path and wins over the
+    // explicit safe_keys opt-in: the application key is never revealed.
+    $response->assertDontSee(CONFIG_APP_KEY_SECRET);
     $response->assertSee('[REDACTED]');
 });
 
