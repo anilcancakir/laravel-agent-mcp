@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 
 /**
  * Runs an allowlisted artisan command as the host application.
@@ -27,6 +28,14 @@ use Laravel\Mcp\Response;
  * is also hidden via shouldRegister(), but that is best-effort UX only: the deny
  * happens regardless of registration (Oracle IMP5 — hiding is not authorization).
  */
+#[Description(<<<'TEXT'
+    Run a single artisan command from an exact, operator-defined allowlist. This is the only tool that executes anything; assume it is unavailable unless you have confirmed it is enabled.
+
+    Usage:
+    - Off by default with an empty allowlist. Only commands the operator allowlisted run; everything else is refused. Do not assume any command is available.
+    - `command` must be the exact allowlisted command name (no wildcards). `arguments` is a map of option name to value, and only allowlisted options are accepted.
+    - Treat a denial as the expected default, not an error to work around.
+    TEXT)]
 class RunArtisanTool extends AbstractAgentTool
 {
     protected string $name = 'run_artisan';

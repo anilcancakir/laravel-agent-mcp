@@ -10,6 +10,7 @@ use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 
 /**
  * MCP tool `read_logs`: tails the application's active log file.
@@ -20,6 +21,14 @@ use Laravel\Mcp\Response;
  * optionally filtered by level, then run through the best-effort redactor before
  * it leaves handle().
  */
+#[Description(<<<'TEXT'
+    Read the most recent lines from the application log channel. Call this IMMEDIATELY on any 500, exception, failed job, or unexpected behavior, before attempting a fix; the log is usually the fastest path to the root cause.
+
+    Usage:
+    - Use it proactively when a user reports something is wrong, even without an explicit error; warnings and deprecations often explain subtle breakage.
+    - `lines` controls how many trailing lines to return (clamped to the configured maximum). `level` narrows to error, warning, info, or debug.
+    - Output is redacted as a best-effort secret filter.
+    TEXT)]
 final class ReadLogsTool extends AbstractAgentTool
 {
     /**
@@ -60,7 +69,7 @@ final class ReadLogsTool extends AbstractAgentTool
 
             'level' => $schema->string()
                 ->enum(array_keys(self::LEVEL_MARKERS))
-                ->description('Optional level filter: error, warning, info, or debug.'),
+                ->description('Optional level filter: error, warning, info, or debug. Omit to return all levels.'),
         ];
     }
 

@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -29,6 +30,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * values and never mutates any store (no clearing, eviction, or opcache reset).
  */
 #[Name('cache_status')]
+#[Description(<<<'TEXT'
+    Report cache subsystem health: configured stores and drivers, whether config, routes, and events are cached, an opcache summary, and a session-overlap risk flag. Start here for any cache investigation before reaching for cache_inspect or cache_keys.
+
+    Usage:
+    - Takes no arguments.
+    - The session-overlap risk flag warns when sessions and the cache share one store, which is the situation cache_keys guards against.
+    - Read-only.
+    TEXT)]
 class CacheStatusTool extends AbstractAgentTool
 {
     /**

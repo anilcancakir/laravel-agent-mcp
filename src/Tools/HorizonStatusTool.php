@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -24,6 +25,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  * continue/terminate); it only reads status.
  */
 #[Name('horizon_status')]
+#[Description(<<<'TEXT'
+    Report Laravel Horizon workload, metrics, and supervisor state. Use it when the app runs Horizon and you need queue throughput or worker health.
+
+    Usage:
+    - Takes no arguments.
+    - Returns {available:false} when Horizon is not installed; treat that as not deployed, not an error.
+    - Read-only.
+    TEXT)]
 class HorizonStatusTool extends AbstractAgentTool
 {
     /**

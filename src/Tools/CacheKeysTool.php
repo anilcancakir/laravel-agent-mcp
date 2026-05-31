@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 
 /**
@@ -40,6 +41,15 @@ use Laravel\Mcp\Server\Attributes\Name;
  * used; the dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('cache_keys')]
+#[Description(<<<'TEXT'
+    List cache keys with their TTLs. Use it sparingly to audit what is stored in the cache.
+
+    Usage:
+    - Off by default; treat a denial as the expected default.
+    - Works on the database and Redis drivers only. Redis uses SCAN, never KEYS. Session-prefix keys are excluded so live session IDs do not leak.
+    - Omit `store` to use the default store.
+    - Read-only.
+    TEXT)]
 class CacheKeysTool extends AbstractAgentTool
 {
     /**

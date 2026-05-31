@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Throwable;
 
@@ -32,6 +33,15 @@ use Throwable;
  * boundary for these reads. See the README security model for the rationale.
  */
 #[Name('queue_backlog')]
+#[Description(<<<'TEXT'
+    Report pending job counts per connection and queue. Reach for this first when a user reports slow or missing background processing, before digging into job code.
+
+    Usage:
+    - Omit `connection` and `queue` to enumerate everything; provide either to scope the result.
+    - The database driver also reports a strict-pending count. The sync driver has no backlog and returns a note instead of a number.
+    - Pair with queue_failed_jobs for failure detail and horizon_status when Horizon is deployed.
+    - Read-only.
+    TEXT)]
 class QueueBacklogTool extends AbstractAgentTool
 {
     /**

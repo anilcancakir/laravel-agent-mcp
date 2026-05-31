@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Throwable;
 
@@ -39,6 +40,14 @@ use Throwable;
  * used; the dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('cache_inspect')]
+#[Description(<<<'TEXT'
+    Inspect a single cache key's metadata, and optionally its value. Use it to check whether a key exists, its TTL, and its value type.
+
+    Usage:
+    - Omit `store` to use the default store. `key` is the cache key without the global prefix.
+    - Metadata (exists, TTL, type) is always returned. The raw value comes back only when `raw_value` is true AND the operator set cache.allow_value_read AND the key is not block-listed; otherwise it is [REDACTED].
+    - Read-only.
+    TEXT)]
 class CacheInspectTool extends AbstractAgentTool
 {
     /**

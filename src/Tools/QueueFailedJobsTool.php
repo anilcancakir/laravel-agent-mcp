@@ -6,6 +6,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
 use Throwable;
 
@@ -30,6 +31,15 @@ use Throwable;
  * dedicated readonly DB grant is the enforcement boundary. See the README.
  */
 #[Name('queue_failed_jobs')]
+#[Description(<<<'TEXT'
+    Inspect failed background jobs from the failed-jobs table. Use it when investigating why jobs are failing.
+
+    Usage:
+    - Set `summary` true for counts grouped by queue and connection; leave it off for per-job detail (job class, exception first line, failed_at).
+    - Scope with `connection` and `queue` when needed.
+    - The raw job payload is never returned.
+    - Read-only.
+    TEXT)]
 class QueueFailedJobsTool extends AbstractAgentTool
 {
     /**
