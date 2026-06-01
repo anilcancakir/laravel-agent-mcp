@@ -2,6 +2,8 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Cli;
 
+use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
+use Anilcancakir\LaravelAgentMcp\Support\RemoteUrl;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Env;
@@ -11,16 +13,24 @@ use JsonException;
 /**
  * Remote-mode client for the CLI: invokes a tool (or lists tools) on a REMOTE agent-mcp
  * HTTP endpoint instead of running it in-process. Mirrors StdioBridgeCommand's transport
- * discipline (Bearer key via the configured key header, TLS always on, the key only ever
- * in the Authorization header) but issues a single stateless JSON-RPC request rather than
+ * discipline (Bearer key via the configured key header, the key only ever in the
+ * Authorization header) but issues a single stateless JSON-RPC request rather than
  * bridging a stdin loop.
  *
- * Connection comes from operator ENV only (AGENT_MCP_URL + AGENT_MCP_KEY via Env::get),
- * never from config or request data, so a caller cannot redirect the credential. The
- * remote agent-mcp server accepts a single tools/call POST with no initialize handshake.
+ * The remote URL is single-sourced through rawUrl(): the AGENT_MCP_URL env override wins,
+ * else the committed url in .agent-mcp.json (InstallMode::url()). The key is env-only
+ * (AGENT_MCP_KEY via Env::get), never read from config, a file, or request data, so a
+ * caller cannot redirect or exfiltrate the credential. The remote agent-mcp server accepts
+ * a single tools/call POST with no initialize handshake.
  *
- * On any failure (non-2xx, transport error, malformed body) a RemoteInvocationException is
- * thrown with a generic message: no response body, no request body, no key.
+ * TLS is enforced at the POST, not assumed: before sending, post() rejects a resolved url
+ * that does not pass RemoteUrl::valid() (https, or http for loopback only) so the Bearer
+ * key never travels in plaintext. A configured-but-unusable url errors loudly rather than
+ * silently downgrading to local.
+ *
+ * On any failure (missing config, bad scheme, non-2xx, transport error, malformed body) a
+ * RemoteInvocationException is thrown with a generic message: no url, no response body, no
+ * request body, no key.
  */
 class RemoteToolClient
 {
@@ -31,12 +41,14 @@ class RemoteToolClient
     private const PROTOCOL_VERSION = '2025-06-18';
 
     /**
-     * Whether remote mode is usable: both the URL and the key are present in the process
-     * environment. Read at call time so the live env (not cached config) is authoritative.
+     * Whether remote intent is present: a remote url is resolvable (env override or the
+     * committed file). The key is intentionally NOT part of this gate so a url-without-key
+     * routes to remote and surfaces a loud error in post(), rather than silently running
+     * local. Read at call time so the live env/file (not cached config) is authoritative.
      */
     public function configured(): bool
     {
-        return $this->url() !== null && $this->key() !== null;
+        return $this->rawUrl() !== null;
     }
 
     /**
@@ -102,10 +114,24 @@ class RemoteToolClient
      */
     private function post(array $payload): Response
     {
-        $url = $this->url();
+        $url = $this->rawUrl();
+
+        // 1. No remote intent at all: neither env override nor committed url.
+        if ($url === null) {
+            throw new RemoteInvocationException('Remote mode is not configured: set AGENT_MCP_URL and AGENT_MCP_KEY.');
+        }
+
+        // 2. A url is present but fails the TLS rule (e.g. a plaintext http env override).
+        //    Reject before sending so the Bearer key never travels over plaintext; the
+        //    message names neither the url nor the scheme value.
+        if (! RemoteUrl::valid($url)) {
+            throw new RemoteInvocationException('Remote endpoint must be an https URL.');
+        }
+
+        // 3. The key is env-only and mandatory; fail loudly before any request.
         $key = $this->key();
 
-        if ($url === null || $key === null) {
+        if ($key === null) {
             throw new RemoteInvocationException('Remote mode is not configured: set AGENT_MCP_URL and AGENT_MCP_KEY.');
         }
 
@@ -174,13 +200,28 @@ class RemoteToolClient
     }
 
     /**
-     * The remote endpoint URL from the process environment, or null when unset/empty.
+     * Resolve the remote endpoint URL from the single source of truth: the AGENT_MCP_URL
+     * env override (trimmed, non-empty) wins, else the committed url in .agent-mcp.json.
+     *
+     * The env branch is read RAW (not filtered through RemoteUrl) so a bad-scheme env
+     * override stays non-null and reaches the loud TLS guard in post(). InstallMode::url()
+     * already filters the committed value through RemoteUrl::valid(), so a hand-edited
+     * bad-scheme committed url reads as null here (no remote intent). This is the only
+     * place env-then-file resolution lives; configured() and post() both consume it.
      */
-    private function url(): ?string
+    private function rawUrl(): ?string
     {
-        $url = Env::get('AGENT_MCP_URL');
+        $env = Env::get('AGENT_MCP_URL');
 
-        return is_string($url) && $url !== '' ? $url : null;
+        if (is_string($env)) {
+            $trimmed = trim($env);
+
+            if ($trimmed !== '') {
+                return $trimmed;
+            }
+        }
+
+        return InstallMode::url();
     }
 
     /**

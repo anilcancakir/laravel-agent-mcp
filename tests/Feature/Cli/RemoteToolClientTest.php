@@ -2,34 +2,149 @@
 
 use Anilcancakir\LaravelAgentMcp\Cli\RemoteInvocationException;
 use Anilcancakir\LaravelAgentMcp\Cli\RemoteToolClient;
+use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 
 // RemoteToolClient is the remote-mode HTTP surface the CLI composes. It POSTs a single
 // stateless JSON-RPC tools/call (no initialize handshake), follows tools/list pagination
 // via nextCursor, and mirrors StdioBridgeCommand's scrub discipline: the key only ever
 // travels in the Authorization header, never in a thrown message or any echoed output.
+// The remote URL is single-sourced: AGENT_MCP_URL env wins, else the committed url in
+// .agent-mcp.json (InstallMode::url()).
 
 beforeEach(function (): void {
     putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
     putenv('AGENT_MCP_KEY=super-secret-key-value');
+    File::delete(InstallMode::path());
 });
 
 afterEach(function (): void {
     putenv('AGENT_MCP_URL');
     putenv('AGENT_MCP_KEY');
+    File::delete(InstallMode::path());
 });
 
-it('reports configured true only when both env vars are present', function (): void {
+it('reports configured true when a remote url is present (env or committed file)', function (): void {
+    // 1. Env url present -> configured.
     expect((new RemoteToolClient)->configured())->toBeTrue();
 
-    putenv('AGENT_MCP_KEY');
-    expect((new RemoteToolClient)->configured())->toBeFalse();
-
-    putenv('AGENT_MCP_KEY=super-secret-key-value');
+    // 2. No env url, no committed url -> not configured (no remote intent).
     putenv('AGENT_MCP_URL');
     expect((new RemoteToolClient)->configured())->toBeFalse();
+
+    // 3. A committed url alone signals remote intent, even without an env url.
+    InstallMode::write('cli', 'https://committed.test/agent-mcp');
+    expect((new RemoteToolClient)->configured())->toBeTrue();
+});
+
+it('lets the env url win over a committed file url', function (): void {
+    putenv('AGENT_MCP_URL=https://env-wins.test/agent-mcp');
+    InstallMode::write('cli', 'https://committed.test/agent-mcp');
+
+    Http::fake([
+        'env-wins.test/*' => Http::response(json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'result' => ['content' => [], 'isError' => false],
+        ]), 200),
+    ]);
+
+    (new RemoteToolClient)->callTool('app_about', []);
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://env-wins.test/agent-mcp');
+});
+
+it('uses the committed file url when the env url is unset', function (): void {
+    putenv('AGENT_MCP_URL');
+    InstallMode::write('cli', 'https://committed.test/agent-mcp');
+
+    Http::fake([
+        'committed.test/*' => Http::response(json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'result' => ['content' => [], 'isError' => false],
+        ]), 200),
+    ]);
+
+    (new RemoteToolClient)->callTool('app_about', []);
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->url() === 'https://committed.test/agent-mcp'
+            && $request->hasHeader('Authorization', 'Bearer super-secret-key-value');
+    });
+});
+
+it('throws and sends nothing when an env url has a bad (plaintext) scheme', function (): void {
+    // The env override is read raw, so a bad-scheme env url reaches the RemoteUrl
+    // guard in post() and must error loudly before any request leaves the box.
+    putenv('AGENT_MCP_URL=http://remote.test/agent-mcp');
+
+    Http::fake();
+
+    $caught = null;
+
+    try {
+        (new RemoteToolClient)->callTool('db_schema', []);
+    } catch (RemoteInvocationException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+    expect($caught->getMessage())->not->toContain('remote.test');
+    expect($caught->getMessage())->not->toContain('http://');
+    Http::assertNothingSent();
+});
+
+it('treats a hand-edited bad-scheme committed url as no remote intent', function (): void {
+    // InstallMode::url() filters through RemoteUrl::valid(), so a hand-edited bad-scheme
+    // committed url reads as null: rawUrl() is null -> the generic "not configured" error,
+    // never a silent local downgrade and never a request.
+    putenv('AGENT_MCP_URL');
+    File::put(InstallMode::path(), json_encode([
+        'mode' => 'cli',
+        'version' => 1,
+        'url' => 'http://remote.test/agent-mcp',
+    ]));
+
+    expect((new RemoteToolClient)->configured())->toBeFalse();
+
+    Http::fake();
+
+    $caught = null;
+
+    try {
+        (new RemoteToolClient)->callTool('db_schema', []);
+    } catch (RemoteInvocationException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+    expect($caught->getMessage())->not->toContain('remote.test');
+    Http::assertNothingSent();
+});
+
+it('throws a generic error carrying neither url nor key when the key is missing', function (): void {
+    putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
+    putenv('AGENT_MCP_KEY');
+
+    Http::fake();
+
+    $caught = null;
+
+    try {
+        (new RemoteToolClient)->callTool('db_schema', []);
+    } catch (RemoteInvocationException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+    expect($caught->getMessage())->not->toContain('remote.test');
+    expect($caught->getMessage())->not->toContain('https://remote.test/agent-mcp');
+    expect($caught->getMessage())->not->toContain('super-secret-key-value');
+    Http::assertNothingSent();
 });
 
 it('posts a single tools/call with the Bearer header and returns the parsed result', function (): void {
