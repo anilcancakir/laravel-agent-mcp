@@ -24,7 +24,7 @@ final class DbActiveLocksStubServer extends Server
 beforeEach(function (): void {
     app()->register(McpServiceProvider::class);
 
-    // db_active_locks is OFF by default (Step 1); the behavioral tests enable it.
+    // db_active_locks is OFF by default; the behavioral tests enable it.
     config()->set('agent-mcp.tools.db_active_locks', true);
     config()->set('agent-mcp.connection', 'readonly');
     config()->set('agent-mcp.audit.enabled', false);

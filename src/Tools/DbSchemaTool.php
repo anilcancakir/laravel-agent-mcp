@@ -25,7 +25,7 @@ use Laravel\Mcp\Server\Attributes\Name;
  * of leaking a raw driver exception.
  *
  * Output is run through the redactor because column defaults and comments can
- * carry secrets (Oracle IMP4: redaction is best-effort defense-in-depth).
+ * carry secrets (redaction is best-effort defense-in-depth).
  */
 #[Name('db_schema')]
 #[Description(<<<'TEXT'
@@ -96,8 +96,8 @@ class DbSchemaTool extends AbstractAgentTool
         $connectionName = (string) config('agent-mcp.connection', 'readonly');
 
         // Validate the table exists before introspecting so a typo or injection
-        // attempt yields a clean denial, not a raw driver exception (Oracle IMP6:
-        // strip stack traces; here we go further and never attempt the call).
+        // attempt yields a clean denial, not a raw driver exception (strip stack
+        // traces; here we go further and never attempt the call).
         $knownTables = array_column(Schema::connection($connectionName)->getTables(), 'name');
 
         if (! in_array($table, $knownTables, true)) {

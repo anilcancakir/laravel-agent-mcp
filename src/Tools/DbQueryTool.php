@@ -17,11 +17,11 @@ use Laravel\Mcp\Server\Attributes\Name;
  * Security model:
  *   - Table name validated against Schema::getTables() before any query is built.
  *   - Column names (select, conditions, order_by) validated against
- *     Schema::getColumns($table) — never interpolated raw.
+ *     Schema::getColumns($table), never interpolated raw.
  *   - Operator values validated against a FIXED enum; anything outside the enum
  *     is rejected with a clean error BEFORE query construction (never raw-SQL).
  *   - User-supplied condition values are ALWAYS passed as PDO bindings via the
- *     query builder's where() / whereIn() — never concatenated into SQL.
+ *     query builder's where() / whereIn(), never concatenated into SQL.
  *   - Result limit clamped to config('agent-mcp.query.max_rows').
  *   - Output rows redacted through OutputRedactor (best-effort defense-in-depth).
  */
@@ -87,7 +87,7 @@ class DbQueryTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative tool-enabled gate — must be first.
+        // 1. Authoritative tool-enabled gate; must be first.
         if ($denial = $this->authorize()) {
             return $denial;
         }
@@ -302,7 +302,7 @@ class DbQueryTool extends AbstractAgentTool
             $column = isset($condition['column']) ? (string) $condition['column'] : '';
             $operator = isset($condition['operator']) ? (string) $condition['operator'] : '';
 
-            // Operator must come from the fixed allowlist — no raw strings.
+            // Operator must come from the fixed allowlist, no raw strings.
             if (! in_array(strtolower((string) $operator), self::ALLOWED_OPERATORS, true)) {
                 return Response::error(
                     "Operator '{$operator}' is not allowed. Permitted operators: "

@@ -25,7 +25,7 @@ final class DbSlowQueriesStubServer extends Server
 beforeEach(function (): void {
     app()->register(McpServiceProvider::class);
 
-    // db_slow_queries is OFF by default (Step 1); the behavioral tests enable it.
+    // db_slow_queries is OFF by default; the behavioral tests enable it.
     config()->set('agent-mcp.tools.db_slow_queries', true);
     config()->set('agent-mcp.connection', 'readonly');
     config()->set('agent-mcp.audit.enabled', false);

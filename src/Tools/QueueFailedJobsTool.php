@@ -16,7 +16,7 @@ use Throwable;
  * Reads the failed job store (app('queue.failer')) to surface either a
  * per-queue/connection summary or a pageable list of individual failures.
  *
- * SECURITY (Oracle IMP4): the raw job payload is NEVER emitted. Only three
+ * SECURITY: the raw job payload is NEVER emitted. Only three
  * fields from the decoded payload are included: displayName, maxTries, and
  * timeout. The exception text is trimmed to its first line to avoid emitting
  * a full stack trace. The output is run through the OutputRedactor as a final
@@ -172,7 +172,7 @@ class QueueFailedJobsTool extends AbstractAgentTool
      * Convert a raw failed-job row into a safe, limited output shape.
      *
      * The raw payload is decoded and only displayName/maxTries/timeout are
-     * extracted (Oracle IMP4: never emit raw payload).
+     * extracted (never emit raw payload).
      *
      * @return array<string, mixed>
      */

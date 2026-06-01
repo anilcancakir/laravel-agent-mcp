@@ -21,8 +21,7 @@ use Laravel\Mcp\Server\Attributes\Name;
  * the config structure without reading a single secret.
  *
  * A leaf value is returned ONLY when ALL of these hold, evaluated in this order
- * (gating FIRST, OutputRedactor as the last net only, per Oracle value-gating
- * order):
+ * (gating FIRST, OutputRedactor as the last net only):
  *
  *   1. reveal_values=true is explicitly requested.
  *   2. The full dot-path is in the union of config('agent-mcp.config_inspect.safe_list')

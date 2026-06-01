@@ -31,7 +31,7 @@ use Laravel\Mcp\Server\Tool;
  *     calls it via Container::call when method_exists, so its arguments are
  *     method-injected and its presence is optional.
  *
- * Security model (Oracle IMP5: hiding is not authorization):
+ * Security model (hiding is not authorization):
  *   - authorize() is the AUTHORITATIVE tool-enabled check. Every subclass handle()
  *     calls it FIRST and returns its denial Response when non-null, before doing any
  *     work. The route middleware has already proven the caller holds the key.

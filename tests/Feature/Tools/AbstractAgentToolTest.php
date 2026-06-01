@@ -17,8 +17,8 @@ use Laravel\Mcp\Server\McpServiceProvider;
 beforeEach(function (): void {
     // laravel/mcp's own provider registers the resolving(Request::class) callback that
     // populates the injected Request from the bound mcp.request. In production it is
-    // auto-discovered; the isolated package test app does not load it (no provider until
-    // Step 14), so register it here to exercise the real method-injection contract.
+    // auto-discovered; the isolated package test app does not load it, so register it
+    // here to exercise the real method-injection contract.
     app()->register(McpServiceProvider::class);
 
     // The stub tools read these config keys via the base; set them explicitly so the

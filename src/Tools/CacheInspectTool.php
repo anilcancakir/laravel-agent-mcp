@@ -22,8 +22,7 @@ use Throwable;
  *
  * The raw value is the high-risk surface (a cached value may be a plaintext
  * secret or a serialized object). It is returned ONLY when ALL of these hold,
- * gating FIRST and treating OutputRedactor as the last net (Oracle value-gating
- * order):
+ * gating FIRST and treating OutputRedactor as the last net:
  *
  *   1. raw_value=true is explicitly requested.
  *   2. config('agent-mcp.cache.allow_value_read') is true (operator opt-in).
@@ -218,7 +217,7 @@ class CacheInspectTool extends AbstractAgentTool
      * Apply the value gate: the raw value is revealed ONLY when it was requested
      * AND value reads are enabled AND the key is not block-listed. Any failed gate
      * returns [REDACTED]. Gating happens here, FIRST; OutputRedactor is the last
-     * net, never the sole guard (Oracle value-gating order).
+     * net, never the sole guard.
      */
     private function gatedValue(string $key, mixed $value, bool $wantsValue): mixed
     {

@@ -36,7 +36,7 @@ beforeEach(function (): void {
     config()->set('agent-mcp.tools.config_inspect', true);
     config()->set('agent-mcp.audit.enabled', false);
 
-    // Default block-list/safe-list from Step 1; reset safe_list to empty so each
+    // Default block-list/safe-list from config; reset safe_list to empty so each
     // test opts in explicitly.
     config()->set('agent-mcp.config_inspect.block_list', [
         'password',

@@ -15,7 +15,7 @@ use Laravel\Mcp\Server\Attributes\Name;
  * MCP tool: cache_keys
  *
  * Enumerates the keys in a cache store. This is the most sensitive cache surface
- * and ships DISABLED by default (Step 1): when the session lives in the same
+ * and ships DISABLED by default: when the session lives in the same
  * store, the key NAMES are themselves live session identifiers, so the tool both
  * scopes to the configured cache prefix and EXCLUDES any key that carries the
  * session prefix.
@@ -140,7 +140,7 @@ class CacheKeysTool extends AbstractAgentTool
                 ? Str::substr($row->key, Str::length($prefix))
                 : $row->key;
 
-            // Drop session keys: their names are live session IDs (Oracle).
+            // Drop session keys: their names are live session IDs.
             if ($this->isSessionKey($logicalKey)) {
                 $excluded++;
 

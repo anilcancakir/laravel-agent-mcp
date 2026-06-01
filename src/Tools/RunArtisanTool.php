@@ -11,7 +11,7 @@ use Laravel\Mcp\Server\Attributes\Description;
 /**
  * Runs an allowlisted artisan command as the host application.
  *
- * Executing artisan as the app is a confused-deputy surface (Oracle IMP5): a
+ * Executing artisan as the app is a confused-deputy surface: a
  * benign-looking command name can still accept destructive options (e.g.
  * --force on a migration). The allowlist is therefore the WHOLE authorization
  * for WHICH command runs, and it authorizes options explicitly, not just names:
@@ -26,7 +26,7 @@ use Laravel\Mcp\Server\Attributes\Description;
  *
  * An empty allowlist (the default) denies authoritatively in handle(); the tool
  * is also hidden via shouldRegister(), but that is best-effort UX only: the deny
- * happens regardless of registration (Oracle IMP5 — hiding is not authorization).
+ * happens regardless of registration (hiding is not authorization).
  */
 #[Description(<<<'TEXT'
     Run a single artisan command from an exact, operator-defined allowlist. This is the only tool that executes anything; assume it is unavailable unless you have confirmed it is enabled.
@@ -56,7 +56,7 @@ class RunArtisanTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative tool-enabled gate (Oracle IMP5: handle() is the boundary).
+        // 1. Authoritative tool-enabled gate (handle() is the boundary).
         if ($denial = $this->authorize()) {
             return $denial;
         }

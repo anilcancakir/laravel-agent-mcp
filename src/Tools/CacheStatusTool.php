@@ -162,7 +162,7 @@ class CacheStatusTool extends AbstractAgentTool
     /**
      * Flag the case where the session lives in redis on the SAME connection as the
      * default cache store. There, cache key listings can surface live session IDs,
-     * so the operator is warned before enabling cache_keys (Oracle: session-in-redis
+     * so the operator is warned before enabling cache_keys (session-in-redis
      * key names are live session identifiers).
      */
     private function sessionOverlapRisk(): bool

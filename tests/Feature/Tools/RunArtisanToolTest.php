@@ -5,7 +5,7 @@ use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Server\McpServiceProvider;
 
-// run_artisan executes commands as the host app: a confused-deputy surface (Oracle IMP5).
+// run_artisan executes commands as the host app: a confused-deputy surface.
 // The allowlist is the WHOLE authorization for WHICH command runs. These tests prove the
 // authoritative deny path (empty allowlist), exact-match command authority (no substring),
 // explicit per-option permitting (an artisan command accepts destructive options even when

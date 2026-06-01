@@ -22,11 +22,11 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
  *   1. authorize()  - tool-enabled gate (AbstractAgentTool); the server-admin key
  *      was already verified by the HTTP middleware before the tool ran.
  *   2. SelectStatementValidator::validate() - allowlist grammar; rejects anything
- *      that is not a single read-only SELECT BEFORE a query ever runs (Oracle CRIT2).
+ *      that is not a single read-only SELECT BEFORE a query ever runs.
  *   3. auto-LIMIT - an unbounded SELECT is capped at config('agent-mcp.query.max_rows')
  *      to bound result size (DoS mitigation, paired with the connection timeout).
  *   4. $this->readonly() - the hardened read-only connection (PRAGMA query_only / a
- *      SELECT-only grant + statement timeout) is the REAL boundary (Oracle CRIT1): even
+ *      SELECT-only grant + statement timeout) is the REAL boundary: even
  *      if validation were bypassed, a write is refused at the connection layer.
  *   5. redactor() - best-effort redaction of secret-shaped values in the result rows.
  *
@@ -47,7 +47,7 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
 class DbRawSelectTool extends AbstractAgentTool
 {
     /**
-     * The MCP tool name. Set explicitly so it is the plan's snake_case identifier
+     * The MCP tool name. Set explicitly so it is the snake_case identifier
      * (db_raw_select) rather than the kebab-cased class basename, and so the base's
      * config gates resolve against config('agent-mcp.tools.db_raw_select').
      */
@@ -83,7 +83,7 @@ class DbRawSelectTool extends AbstractAgentTool
 
     public function handle(Request $request): Response
     {
-        // 1. Authoritative authorization gate, before any work (Oracle IMP5).
+        // 1. Authoritative authorization gate, before any work.
         if ($denial = $this->authorize()) {
             return $denial;
         }

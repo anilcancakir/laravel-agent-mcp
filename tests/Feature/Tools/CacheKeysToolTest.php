@@ -28,7 +28,7 @@ beforeEach(function (): void {
     // laravel/mcp's provider populates the injected Request via method injection.
     app()->register(McpServiceProvider::class);
 
-    // cache_keys defaults OFF (Step 1); the behavioral tests enable it here.
+    // cache_keys defaults OFF; the behavioral tests enable it here.
     config()->set('agent-mcp.tools.cache_keys', true);
     config()->set('agent-mcp.audit.enabled', false);
 

@@ -8,7 +8,7 @@ use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
 
 // A minimal server whose only registered tool is DbSchemaTool, keeping these tests
-// isolated from Step 14's AgentMcpServer.
+// isolated from the full AgentMcpServer.
 
 /**
  * Inline stub server that hosts DbSchemaTool for this test file only.
