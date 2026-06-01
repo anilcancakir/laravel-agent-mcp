@@ -135,4 +135,92 @@ describe('InstallMode', function (): void {
 
         expect(File::exists(InstallMode::path()))->toBeFalse();
     });
+
+    it('writes pretty JSON with mode, version, and url when url is provided', function (): void {
+        InstallMode::write('cli', 'https://x.test');
+
+        $contents = File::get(InstallMode::path());
+
+        expect($contents)->toBe(<<<'JSON'
+            {
+                "mode": "cli",
+                "version": 1,
+                "url": "https://x.test"
+            }
+            JSON);
+    });
+
+    it('omits the url key entirely when write is called without a url', function (): void {
+        InstallMode::write('cli');
+
+        $contents = File::get(InstallMode::path());
+
+        expect($contents)->not->toContain('"url"');
+    });
+
+    it('throws InvalidArgumentException when write is given an invalid url', function (): void {
+        $thrown = null;
+
+        try {
+            InstallMode::write('cli', 'http://evil.com');
+        } catch (InvalidArgumentException $exception) {
+            $thrown = $exception;
+        }
+
+        expect($thrown)->toBeInstanceOf(InvalidArgumentException::class);
+    });
+
+    it('does not write the file when the url is invalid', function (): void {
+        try {
+            InstallMode::write('cli', 'http://evil.com');
+        } catch (InvalidArgumentException) {
+            // Expected; assert below that nothing was written.
+        }
+
+        expect(File::exists(InstallMode::path()))->toBeFalse();
+    });
+
+    // -------------------------------------------------------------------------
+    // url()
+    // -------------------------------------------------------------------------
+
+    it('returns null when the file is absent', function (): void {
+        expect(InstallMode::url())->toBeNull();
+    });
+
+    it('returns null when the url key is absent from the file', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1]));
+
+        expect(InstallMode::url())->toBeNull();
+    });
+
+    it('returns null when the committed url is non-conforming (http non-loopback)', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1, 'url' => 'http://remote.example.com']));
+
+        expect(InstallMode::url())->toBeNull();
+    });
+
+    it('returns null when the file is malformed', function (): void {
+        File::put(InstallMode::path(), '{not valid json');
+
+        expect(InstallMode::url())->toBeNull();
+    });
+
+    it('returns the committed https url when valid', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1, 'url' => 'https://agent.example.com']));
+
+        expect(InstallMode::url())->toBe('https://agent.example.com');
+    });
+
+    it('returns a loopback http url as valid', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1, 'url' => 'http://localhost:8080']));
+
+        expect(InstallMode::url())->toBe('http://localhost:8080');
+    });
+
+    it('round-trips a url written via write() through url()', function (): void {
+        InstallMode::write('cli', 'https://x.test');
+
+        expect(InstallMode::url())->toBe('https://x.test');
+    });
 });
