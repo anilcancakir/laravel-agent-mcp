@@ -9,19 +9,19 @@ paths:
 
 # Boost assets
 
-`resources/boost/` ships laravel-boost skills and a guideline. Each asset is a DUAL FILE: a `.blade.php` (mode-guarded, the source boost renders) plus a `.md` fallback for older boost that cannot render blade. Editing one without the other drifts them.
+`resources/boost/` ships laravel-boost skills and a guideline. Skills are a DUAL FILE: a `.blade.php` (mode-guarded, the source boost renders) plus a `SKILL.md` fallback (skill discovery is blade-FIRST, so the `.md` is a true fallback used only when no blade is present). Editing one without the other drifts them. The guideline is blade-ONLY (`core.blade.php`, no `core.md`).
 
 When editing any file under `resources/boost/`:
 
 - Skills (`skills/agent-mcp-investigation/`, `skills/agent-mcp-cli/`): `SKILL.blade.php` wraps the ENTIRE file, YAML frontmatter included, in `@if(\Anilcancakir\LaravelAgentMcp\Support\InstallMode::current() === 'mcp')` (or `'cli'`) ... `@endif`. The inactive-mode render must be empty so boost drops the skill. Mirror every content change into the sibling `SKILL.md` (same body, no `@if` wrap).
-- Guideline (`guidelines/core.blade.php`): a shared preamble plus `@if(...=== 'cli') ... @else ...(mcp)... @endif`. `guidelines/core.md` is the static BOTH-modes superset; keep it in sync as a superset of both branches.
+- Guideline (`guidelines/core.blade.php`): a shared preamble plus `@if(...=== 'cli') ... @else ...(mcp)... @endif`. Do NOT add a `core.md`: boost's third-party guideline discovery enumerates every file in the dir and a last-write-wins put keyed by package name lets a `.md` override the mode-branched blade with a static superset (boost renders `.md` through blade too, so it is never a real fallback for the guideline).
 - `references/*.md` load on demand from the skill body; keep the skill's pointer and the referenced file consistent.
 - The boost-independent installer copies only `SKILL.md` + `references/` into a consumer; never make `SKILL.blade.php` necessary at install time.
 
 `tests/Feature/Boost/` asserts exact marker strings. Keep them satisfiable:
 
 - `core.blade.php` mcp branch contains `db_raw_select` and not `agent-mcp:call`; the cli branch contains `agent-mcp:call` and not `db_raw_select`; both branches contain `AGENT_MCP_KEY` and `read-only`.
-- `core.md` contains both `db_schema` and `agent-mcp:call`.
+- No `core.md` exists beside `core.blade.php` (the guideline is blade-only).
 - Each `SKILL.blade.php` emits its `name:` frontmatter only in its own mode (investigation = mcp, cli = cli), empty otherwise.
 
 Run `vendor/bin/pest tests/Feature/Boost/` after any change here.
