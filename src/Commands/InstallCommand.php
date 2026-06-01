@@ -5,6 +5,7 @@ namespace Anilcancakir\LaravelAgentMcp\Commands;
 use Anilcancakir\LaravelAgentMcp\Support\AgentTarget;
 use Anilcancakir\LaravelAgentMcp\Support\GuidelineInjector;
 use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
+use Anilcancakir\LaravelAgentMcp\Support\RemoteUrl;
 use Anilcancakir\LaravelAgentMcp\Support\SkillInstaller;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Blade;
@@ -40,6 +41,7 @@ class InstallCommand extends Command
     /** @var string */
     protected $signature = 'agent-mcp:install
         {--mode= : The install mode to record (mcp or cli)}
+        {--url= : Remote agent-mcp endpoint URL to record in .agent-mcp.json for CLI mode (https, or http for loopback)}
         {--agents= : Comma-separated agent keys to target, or "all"}
         {--no-inject : Skip writing guideline/skill into agent files}
         {--inject : Inject even when laravel-boost is installed}';
@@ -56,9 +58,16 @@ class InstallCommand extends Command
             return self::FAILURE;
         }
 
-        $this->recordMode($mode);
+        // 2. Resolve the url to commit; an invalid --url fails closed before writing.
+        $url = $this->resolveUrl($mode);
 
-        // 2. Publish config + agent assets so the adopter has the files on disk.
+        if ($url === false) {
+            return self::FAILURE;
+        }
+
+        $this->recordMode($mode, $url);
+
+        // 3. Publish config + agent assets so the adopter has the files on disk.
         //    The .mcp.json.example shipped under agent-mcp-assets is harmless in cli
         //    mode (only the printed guidance differs), so both modes publish both tags.
         $this->call('vendor:publish', ['--tag' => 'agent-mcp-config']);
@@ -66,7 +75,7 @@ class InstallCommand extends Command
 
         $this->newLine();
 
-        // 3. Print the shared guidance, then the mode-tailored sections.
+        // 4. Print the shared guidance, then the mode-tailored sections.
         $this->printKeySetupInstructions();
         $this->printDbUserReminder();
 
@@ -79,7 +88,7 @@ class InstallCommand extends Command
 
         $this->printDebugWarning();
 
-        // 4. Inject the guideline + skill directly when boost is absent (or --inject),
+        // 5. Inject the guideline + skill directly when boost is absent (or --inject),
         //    unless --no-inject. Otherwise defer to boost via the printed next-step.
         $shouldInject = (! $this->boostIsInstalled() || $this->option('inject'))
             && ! $this->option('no-inject');
@@ -300,16 +309,72 @@ class InstallCommand extends Command
     }
 
     /**
-     * Record the resolved mode to the committed .agent-mcp.json.
+     * Resolve the remote url to commit to .agent-mcp.json.
+     *
+     * Precedence (for cli mode): --url flag (validated, fail-closed), then an
+     * interactive prompt when the session is interactive (blank = none), then the
+     * existing committed url preserved unchanged so a non-interactive re-run (CI)
+     * never silently wipes a previously set url. For mcp mode, --url is allowed
+     * but the value is still validated; the usual path there is null.
+     *
+     * Returns the resolved url string (null = no url), or false when validation
+     * fails (the caller must map false to a non-zero exit without writing).
+     *
+     * @return string|null|false Resolved url, null for "no url", false on invalid input.
+     */
+    private function resolveUrl(string $mode): string|null|false
+    {
+        $given = $this->option('url');
+
+        // 1. An explicit --url is validated first; an invalid value fails closed.
+        if ($given !== null && $given !== '') {
+            if (! RemoteUrl::valid($given)) {
+                $this->error(
+                    'Invalid --url: the endpoint must be an https URL (or http for loopback only).',
+                );
+
+                return false;
+            }
+
+            return $given;
+        }
+
+        // 2. In cli mode + interactive bare install (no explicit --mode flag): prompt for an
+        //    optional url. Scripted runs that pass --mode explicitly skip the prompt so
+        //    non-interactive CI pipelines can re-run safely without registering a question.
+        if ($mode === 'cli' && $this->option('mode') === null && $this->input->isInteractive()) {
+            $answer = $this->ask('Remote endpoint URL (leave blank for none)', '');
+
+            if ($answer !== null && $answer !== '') {
+                if (! RemoteUrl::valid($answer)) {
+                    $this->error(
+                        'Invalid URL: the endpoint must be an https URL (or http for loopback only).',
+                    );
+
+                    return false;
+                }
+
+                return $answer;
+            }
+        }
+
+        // 3. Non-interactive (or mcp mode without --url): preserve the existing committed
+        //    url so a CI re-run never silently wipes what was previously recorded.
+        return InstallMode::url();
+    }
+
+    /**
+     * Record the resolved mode (and optional url) to the committed .agent-mcp.json.
      *
      * Re-running with a different mode overwrites the file; the printed note makes
-     * that explicit. The mode was already validated in resolveMode(); a real write
-     * failure (e.g. a read-only project dir) propagates out of write() and aborts the
-     * command rather than reporting success.
+     * that explicit. The mode was already validated in resolveMode() and the url
+     * was already validated in resolveUrl(); a real write failure (e.g. a read-only
+     * project dir) propagates out of write() and aborts the command rather than
+     * reporting success.
      */
-    private function recordMode(string $mode): void
+    private function recordMode(string $mode, ?string $url): void
     {
-        InstallMode::write($mode);
+        InstallMode::write($mode, $url);
 
         $this->line(sprintf('Recorded install mode [%s] in %s (commit this file).', $mode, InstallMode::path()));
         $this->line('Re-running with a different --mode overwrites it.');
@@ -456,8 +521,12 @@ class InstallCommand extends Command
      * Print the agent-mcp:call / agent-mcp:tools CLI usage block (cli mode).
      *
      * CLI mode skips the MCP client config; the adopter calls the read-only tools
-     * straight from the shell instead, locally or against a remote endpoint via
-     * AGENT_MCP_URL. The same per-tool gate, audit log, and redaction apply.
+     * straight from the shell instead, locally or against a remote endpoint declared
+     * in .agent-mcp.json (the "url" key) or via the AGENT_MCP_URL env override.
+     * The same per-tool gate, audit log, and redaction apply in both modes.
+     *
+     * The committed url is a credential-routing decision: the AGENT_MCP_KEY Bearer
+     * token is sent to whatever host is recorded. Change the url only after review.
      */
     private function printCliUsageBlock(): void
     {
@@ -476,8 +545,15 @@ class InstallCommand extends Command
         $this->line('  echo \'{"table":"users"}\' | php artisan agent-mcp:call db_schema');
         $this->newLine();
         $this->line('Local mode (default): nothing to configure; the call runs in-process.');
-        $this->line('Remote mode: set AGENT_MCP_URL (the remote /agent-mcp URL) + AGENT_MCP_KEY so');
-        $this->line('the command forwards to a remote endpoint instead of running locally.');
+        $this->newLine();
+        $this->line('Remote mode: set a committed URL in .agent-mcp.json (set during install via');
+        $this->line('--url or the prompt, then commit the file) and keep AGENT_MCP_KEY in .env.');
+        $this->line('The command forwards to the remote endpoint using the committed URL. Env');
+        $this->line('AGENT_MCP_URL overrides the committed value at runtime.');
+        $this->newLine();
+        $this->line('URL must be https (http is allowed only for loopback: localhost, 127.0.0.1).');
+        $this->line('Committing a URL is a credential-routing decision: the Bearer key is sent to');
+        $this->line('that host. Review the URL before committing.');
         $this->newLine();
         $this->line('Sensitive tools (config_inspect, db_slow_queries, db_active_locks, cache_keys,');
         $this->line('run_artisan) are off by default. When enabled, the CLI refuses to print their');

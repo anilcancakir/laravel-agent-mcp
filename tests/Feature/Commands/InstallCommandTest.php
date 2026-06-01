@@ -190,6 +190,65 @@ it('does not print the claude mcp add one-liner in cli mode', function (): void 
 });
 
 // -----------------------------------------------------------------------------
+// URL option (--url) and commit-url preservation
+// -----------------------------------------------------------------------------
+
+it('persists a valid https url in .agent-mcp.json when --url is given', function (): void {
+    artisan('agent-mcp:install', ['--mode' => 'cli', '--url' => 'https://x.test', '--agents' => 'claude_code'])
+        ->assertOk();
+
+    expect(InstallMode::url())->toBe('https://x.test');
+});
+
+it('returns FAILURE and writes no url when --url carries an invalid scheme', function (): void {
+    artisan('agent-mcp:install', ['--mode' => 'cli', '--url' => 'http://evil.com'])
+        ->assertFailed();
+
+    // The file must not exist at all (written after mode resolution, which we never reach).
+    expect(File::exists(InstallMode::path()))->toBeFalse();
+});
+
+it('preserves an existing committed url when re-running without --url in non-interactive mode', function (): void {
+    // Seed a prior install with a committed url.
+    artisan('agent-mcp:install', ['--mode' => 'cli', '--url' => 'https://x.test', '--agents' => 'claude_code'])
+        ->assertOk();
+
+    expect(InstallMode::url())->toBe('https://x.test');
+
+    // Re-run without --url; non-interactive (no expectsQuestion) must preserve the url.
+    artisan('agent-mcp:install', ['--mode' => 'cli', '--agents' => 'claude_code'])
+        ->assertOk();
+
+    expect(InstallMode::url())->toBe('https://x.test');
+});
+
+it('prompts for the remote url in a bare interactive cli install and records it', function (): void {
+    // A bare interactive install: mode choice selects cli, then the url prompt fires.
+    artisan('agent-mcp:install', ['--no-inject' => true])
+        ->expectsChoice('Install mode', 'cli', ['mcp', 'cli'])
+        ->expectsQuestion('Remote endpoint URL (leave blank for none)', 'https://prompt.test')
+        ->assertOk();
+
+    expect(InstallMode::url())->toBe('https://prompt.test');
+});
+
+it('accepts a blank url prompt and records no url in a bare interactive cli install', function (): void {
+    artisan('agent-mcp:install', ['--no-inject' => true])
+        ->expectsChoice('Install mode', 'cli', ['mcp', 'cli'])
+        ->expectsQuestion('Remote endpoint URL (leave blank for none)', '')
+        ->assertOk();
+
+    expect(InstallMode::url())->toBeNull();
+});
+
+it('prompts for url and fails when an invalid url is entered in a bare interactive cli install', function (): void {
+    artisan('agent-mcp:install', ['--no-inject' => true])
+        ->expectsChoice('Install mode', 'cli', ['mcp', 'cli'])
+        ->expectsQuestion('Remote endpoint URL (leave blank for none)', 'http://evil.com')
+        ->assertFailed();
+});
+
+// -----------------------------------------------------------------------------
 // Source hygiene
 // -----------------------------------------------------------------------------
 
