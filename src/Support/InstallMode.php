@@ -90,18 +90,18 @@ final class InstallMode
     }
 
     /**
-     * Resolve the committed remote URL from .agent-mcp.json.
+     * Resolve the committed remote URL EXACTLY as recorded, without the TLS filter.
      *
      * Mirrors current()'s never-throw contract: a missing, unreadable, malformed,
-     * or non-conforming url value all resolve to null. Only a url that passes
-     * RemoteUrl::valid() is returned, so callers never receive a plaintext http
-     * target silently. The loud-error-on-intent path lives in RemoteToolClient
-     * (Step 3), which reads the raw value separately; this method is the
-     * "is a usable url committed?" query.
+     * or non-string url value all resolve to null. Unlike url(), the returned value
+     * is NOT validated against RemoteUrl, so a hand-edited bad-scheme committed url
+     * is surfaced (non-null) rather than masked. RemoteToolClient consumes this raw
+     * value so a configured-but-unusable committed url errors loudly at the POST
+     * (the TLS guard) instead of silently downgrading to local mode.
      *
-     * @return string|null The committed url when valid, null otherwise.
+     * @return string|null The committed url string as recorded, null when absent.
      */
-    public static function url(): ?string
+    public static function committedUrl(): ?string
     {
         $path = self::path();
 
@@ -124,14 +124,28 @@ final class InstallMode
             return null;
         }
 
-        // 4. Return the url only when it is a non-empty string that passes the TLS rule.
+        // 4. Return the url as recorded when it is a non-empty string (no TLS filter here).
         $url = $decoded['url'] ?? null;
 
-        if (is_string($url) && RemoteUrl::valid($url)) {
-            return $url;
-        }
+        return is_string($url) && $url !== '' ? $url : null;
+    }
 
-        return null;
+    /**
+     * Resolve the committed remote URL, filtered through the TLS rule.
+     *
+     * Returns the committed url ONLY when it passes RemoteUrl::valid(); a missing or
+     * non-conforming value resolves to null. Used where a usable url is required and a
+     * bad value should read as "none" (install-time preservation never re-persists a
+     * broken scheme). The raw, loud-error path lives in committedUrl(), which
+     * RemoteToolClient consumes for the POST-time TLS guard.
+     *
+     * @return string|null The committed url when valid, null otherwise.
+     */
+    public static function url(): ?string
+    {
+        $url = self::committedUrl();
+
+        return $url !== null && RemoteUrl::valid($url) ? $url : null;
     }
 
     /**

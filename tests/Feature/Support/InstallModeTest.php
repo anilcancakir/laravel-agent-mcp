@@ -223,4 +223,39 @@ describe('InstallMode', function (): void {
 
         expect(InstallMode::url())->toBe('https://x.test');
     });
+
+    // -------------------------------------------------------------------------
+    // committedUrl(): the raw, unfiltered reader
+    // -------------------------------------------------------------------------
+
+    it('returns null from committedUrl when the file is absent', function (): void {
+        expect(InstallMode::committedUrl())->toBeNull();
+    });
+
+    it('returns null from committedUrl when the url key is absent', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1]));
+
+        expect(InstallMode::committedUrl())->toBeNull();
+    });
+
+    it('returns null from committedUrl when the file is malformed', function (): void {
+        File::put(InstallMode::path(), '{not valid json');
+
+        expect(InstallMode::committedUrl())->toBeNull();
+    });
+
+    it('surfaces a hand-edited bad-scheme url verbatim from committedUrl (no TLS filter)', function (): void {
+        // Unlike url(), committedUrl() does NOT apply RemoteUrl::valid(): a bad-scheme
+        // committed value must stay visible so the runtime TLS guard can error loudly.
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1, 'url' => 'http://remote.example.com']));
+
+        expect(InstallMode::committedUrl())->toBe('http://remote.example.com');
+        expect(InstallMode::url())->toBeNull();
+    });
+
+    it('returns the committed https url from committedUrl', function (): void {
+        File::put(InstallMode::path(), json_encode(['mode' => 'cli', 'version' => 1, 'url' => 'https://agent.example.com']));
+
+        expect(InstallMode::committedUrl())->toBe('https://agent.example.com');
+    });
 });
