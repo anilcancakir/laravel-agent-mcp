@@ -12,12 +12,16 @@ use Illuminate\Support\Facades\File;
  * contains the db_schema investigation marker but not agent-mcp:call, and the
  * shared preamble (read-only framing + server-key mention) appears in both.
  *
- * Also asserts core.md exists as a static superset fallback containing both
- * the MCP investigation content and the CLI content.
+ * Also asserts no sibling core.md is shipped: boost's third-party guideline
+ * discovery enumerates both core.blade.php and core.md and lets the .md win a
+ * last-write-wins put keyed by package name, which would override the
+ * mode-branched blade with a static superset. The blade alone keeps boost
+ * rendering per mode.
  */
 describe('core guideline mode rendering', function (): void {
 
-    // Absolute paths to the guideline blade + its static .md fallback.
+    // Absolute path to the guideline blade. The sibling core.md must NOT exist
+    // (see the regression guard at the end of this file).
     $bladePath = __DIR__.'/../../../resources/boost/guidelines/core.blade.php';
     $mdPath = __DIR__.'/../../../resources/boost/guidelines/core.md';
 
@@ -108,18 +112,13 @@ describe('core guideline mode rendering', function (): void {
     });
 
     // -------------------------------------------------------------------------
-    // core.md superset fallback
+    // No sibling core.md: boost's third-party guideline discovery enumerates
+    // every file in the dir and a last-write-wins put keyed by package name lets
+    // a .md override the mode-branched blade with a static superset. Shipping the
+    // blade alone keeps the guideline mode-tailored under boost.
     // -------------------------------------------------------------------------
 
-    it('core.md exists as a static fallback', function () use ($mdPath): void {
-        expect(File::exists($mdPath))->toBeTrue();
-    });
-
-    it('core.md contains the MCP investigation marker', function () use ($mdPath): void {
-        expect(File::get($mdPath))->toContain('db_schema');
-    });
-
-    it('core.md contains the CLI usage marker', function () use ($mdPath): void {
-        expect(File::get($mdPath))->toContain('agent-mcp:call');
+    it('ships no sibling core.md so boost renders the mode-branched blade', function () use ($mdPath): void {
+        expect(File::exists($mdPath))->toBeFalse();
     });
 });
