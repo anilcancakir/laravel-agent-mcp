@@ -136,10 +136,19 @@ php artisan agent-mcp:install --mode=cli
 
 **MCP mode (default).** Registers a full MCP server on your app over HTTP (and a local stdio bridge), prints the ready-to-paste `.mcp.json` blocks and the `claude mcp add` one-liner, and activates the `agent-mcp-investigation` boost skill. Use this when you want persistent, low-latency tool access across many turns of an interactive session.
 
-**CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server. Activates the `agent-mcp-cli` boost skill. Use this for one-off calls, scripts, CI pipelines, or when you do not want to expose an HTTP endpoint.
+**CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server. Activates the `agent-mcp-cli` boost skill. Use this for one-off calls, scripts, CI pipelines, or when you do not want to expose an HTTP endpoint. To target a remote endpoint, record its URL during install:
+
+```bash
+php artisan agent-mcp:install --mode=cli --url=https://your-app.example.com
+```
+
+The URL is committed in `.agent-mcp.json` (the CLI equivalent of `.mcp.json`) and is read by every `agent-mcp:call` on that repo checkout. `AGENT_MCP_URL` in env overrides the committed value. The URL must be `https` (plain `http` is allowed only for loopback addresses). `AGENT_MCP_KEY` stays in env only and is never committed.
+
+> [!WARNING]
+> Committing a URL is a credential-routing decision: every `agent-mcp:call` will send the `AGENT_MCP_KEY` Bearer token to that host. Review changes to `.agent-mcp.json` `url` as you would review a secret.
 
 > [!NOTE]
-> Commit `.agent-mcp.json`. It records the chosen mode (`{"mode":"mcp","version":1}`) for the whole team. When the file is absent, the package defaults to `mcp`, so a missing file is never a breaking state.
+> Commit `.agent-mcp.json`. It records the chosen mode and, for CLI remote setups, the endpoint URL (`{"mode":"cli","version":1,"url":"https://..."}`) for the whole team. When the file is absent, the package defaults to `mcp`, so a missing file is never a breaking state.
 
 After install, wire boost so it injects the active mode's skill and guideline:
 
@@ -265,7 +274,7 @@ php artisan agent-mcp:call db_schema '{"table":"users"}'
 php artisan agent-mcp:call app_about --raw | jq '.environment'
 ```
 
-By default the command runs the tool in-process (local mode). Set `AGENT_MCP_URL` and `AGENT_MCP_KEY` to forward the call to a remote endpoint (remote mode is auto-selected when `AGENT_MCP_URL` is present; `--local` and `--remote` force the choice). The key travels only in the Authorization header, never in command output.
+By default the command runs the tool in-process (local mode). Remote mode is auto-selected when a remote URL is configured: either a `url` committed in `.agent-mcp.json` (set via `agent-mcp:install --url=`) or the `AGENT_MCP_URL` env variable (env takes precedence). Set `AGENT_MCP_KEY` in env to provide the Bearer token. `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in command output. The URL must be `https` (loopback `http` excepted); a configured `http://` non-loopback URL errors loudly rather than falling back to local.
 
 > [!WARNING]
 > Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`, `run_artisan`) can land in terminal scrollback. `agent-mcp:call` refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`; piping or redirecting is always allowed. Do not add `agent-mcp:*` to the `run_artisan` allowlist.
