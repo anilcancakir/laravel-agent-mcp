@@ -7,7 +7,7 @@ use Anilcancakir\LaravelAgentMcp\Cli\RemoteInvocationException;
 use Illuminate\Support\Facades\App;
 
 /**
- * agent-mcp:tools — list the tools available via the CLI.
+ * agent-mcp:tools: list the tools available via the CLI.
  *
  * Local mode reads the tool roster (AgentMcpServer) and reports each tool's name,
  * description, and enabled state; by default only enabled (registerable) tools are listed,

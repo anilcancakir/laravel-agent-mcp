@@ -8,7 +8,7 @@ use JsonException;
 use RuntimeException;
 
 /**
- * agent-mcp:call — invoke a single MCP tool from the shell and print its result.
+ * agent-mcp:call: invoke a single MCP tool from the shell and print its result.
  *
  * Arguments come as a single JSON blob (the positional `input`, or STDIN when omitted),
  * which agents handle more reliably than repeated key=value flags. The tool payload is

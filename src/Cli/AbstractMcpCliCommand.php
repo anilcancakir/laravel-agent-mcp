@@ -16,16 +16,16 @@ use RuntimeException;
  *
  *   - ensureEnabled(): honors the master config('agent-mcp.enabled') switch, mirroring the
  *     service provider's inert-when-disabled contract. The HTTP route is skipped when the
- *     package is disabled; the CLI must be too (Oracle IMPORTANT-3).
+ *     package is disabled; the CLI must be too.
  *   - resolveMode(): default local; AGENT_MCP_URL present -> remote; --local / --remote force.
  *   - invokeLocal(): runs a tool in-process by mirroring laravel/mcp's CallTool dispatch.
  *     The tool's own handle() runs authorize() (the per-tool enable gate) + audit() +
  *     redaction first, so the CLI inherits every guard. The exit code comes from
  *     Response::isError() (NOT the content string, which is identical for an error payload),
- *     and a non-Response return is rejected loudly (Oracle CRITICAL-1 / CRITICAL-2).
+ *     and a non-Response return is rejected loudly.
  *   - guardSensitiveTty(): a sensitive (default-OFF) tool refuses to print to a terminal
- *     without --allow-tty, so secrets are not written to scrollback unintentionally
- *     (Oracle IMPORTANT-5). Piped/redirected output is unaffected.
+ *     without --allow-tty, so secrets are not written to scrollback unintentionally.
+ *     Piped/redirected output is unaffected.
  *
  * stdout carries the tool payload only; diagnostics go to stderr (the MCP stdio contract).
  * Both streams are injectable so tests can assert the exact bytes on each, mirroring
@@ -166,13 +166,13 @@ abstract class AbstractMcpCliCommand extends Command
 
         // CallTool tolerates a ResponseFactory / iterable; the CLI supports only the
         // single-Response shape every package tool returns. Reject anything else loudly
-        // rather than calling content() on the wrong type (Oracle CRITICAL-2).
+        // rather than calling content() on the wrong type.
         if (! $response instanceof McpResponse) {
             throw new RuntimeException("Tool {$name} returned an unsupported response shape for the CLI.");
         }
 
         // The exit code follows isError(), never the content string: Response::error() and a
-        // legitimate text payload stringify identically (Oracle CRITICAL-1).
+        // legitimate text payload stringify identically.
         return [
             'payload' => (string) $response->content(),
             'isError' => $response->isError(),

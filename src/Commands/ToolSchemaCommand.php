@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\App;
 use RuntimeException;
 
 /**
- * agent-mcp:schema — show the input schema of a single tool.
+ * agent-mcp:schema: show the input schema of a single tool.
  *
  * Local mode renders the tool's own inputSchema (built from its schema() definition via the
  * laravel/mcp Tool::toArray contract); remote mode pulls the tool's inputSchema from the

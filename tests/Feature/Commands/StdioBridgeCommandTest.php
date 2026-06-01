@@ -12,7 +12,7 @@ use Symfony\Component\Console\Output\NullOutput;
 //   AGENT_MCP_URL (required) + AGENT_MCP_KEY (required).
 // Each newline-delimited JSON-RPC line on STDIN is POSTed raw to the remote with a
 // Bearer key; the remote reply is written to STDOUT as one \n-terminated line.
-// Security invariants under test (Oracle IMP2):
+// Security invariants under test:
 //   - the key only ever travels in the Authorization header, never on stdout/stderr;
 //   - TLS verification is never disabled;
 //   - missing ENV fails fast to STDERR with no stdout noise.

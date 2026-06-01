@@ -17,7 +17,7 @@ use JsonException;
  * remote with a Bearer key, and writes the remote reply (plus a newline) to STDOUT and
  * nothing else. Diagnostics go to STDERR with the key scrubbed.
  *
- * Security boundary (Oracle IMP2):
+ * Security boundary:
  *   - STDOUT carries pure MCP bytes only; every diagnostic goes to STDERR.
  *   - The key travels only in the Authorization header, never on stdout/stderr.
  *   - TLS verification is always on (no withoutVerifying()).
