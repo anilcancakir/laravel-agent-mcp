@@ -16,7 +16,7 @@ use Illuminate\Database\Connection;
  * single-database scoping live in one audited place rather than being re-derived in
  * six tools.
  *
- * Security model (Oracle findings 1 + 3):
+ * Security model:
  *   - Every catalog SELECT runs through the SAME hardened readonly connection the
  *     tools use for everything else (ReadonlyConnectionResolver::connection): the
  *     real SQL-injection boundary. The catalog SQL itself is package-authored, so it
@@ -85,8 +85,8 @@ class CatalogQuery
      * pg_catalog and information_schema system schemas from a catalog query keyed on
      * the given schema-name column. Combined with each query's own
      * current_database() filter, this keeps PG introspection inside the current
-     * database and out of the server's system catalogs (Oracle finding 3: no
-     * cross-database enumeration on a shared cluster).
+     * database and out of the server's system catalogs (no cross-database
+     * enumeration on a shared cluster).
      *
      * The column name is a package-authored identifier (e.g. 'n.nspname'), never
      * agent input, so embedding it in the fragment carries no injection surface.
@@ -100,7 +100,7 @@ class CatalogQuery
      * MySQL single-database scope fragment: a SQL predicate binding a catalog query
      * to the current database via DATABASE() on the given schema column (e.g.
      * 'TABLE_SCHEMA'). Keeps information_schema lookups inside the connected database
-     * rather than enumerating every schema on the server (Oracle finding 3).
+     * rather than enumerating every schema on the server.
      *
      * The column name is a package-authored identifier, never agent input.
      */

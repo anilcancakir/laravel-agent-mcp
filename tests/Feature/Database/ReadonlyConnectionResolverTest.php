@@ -5,7 +5,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
-// These tests pin the REAL SQLi boundary (Oracle CRIT1): the readonly connection
+// These tests pin the REAL SQLi boundary: the readonly connection
 // must reject the EMULATE_PREPARES misconfiguration loudly and must physically
 // refuse writes on SQLite via PRAGMA query_only. They are negative, fail-closed
 // tests: a write that succeeds is a security regression, not a test bug.

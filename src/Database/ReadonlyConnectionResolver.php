@@ -10,8 +10,7 @@ use RuntimeException;
 
 /**
  * Resolves the mandatory read-only database connection and hardens it at the
- * connection layer. This is the REAL SQL-injection boundary of the package
- * (Oracle CRIT1): the SELECT-statement parser (Step 5) is defense-in-depth
+ * connection layer. This is the REAL SQL-injection boundary of the package: the SELECT-statement parser is defense-in-depth
  * layered on top, never the sole guard.
  *
  * What this class enforces directly:
@@ -25,10 +24,10 @@ use RuntimeException;
  *                   SET statement_timeout = <statement_timeout_ms>
  *       SQLite:     PRAGMA query_only = ON
  *     SQLite has no GRANT system, so query_only plus a read-only DSN plus the
- *     statement validator are the only available enforcement (Oracle CRIT1).
+ *     statement validator are the only available enforcement.
  *     MySQL has NO per-session read-only flag for a normal user, so on MySQL the
  *     code layer (the SELECT-statement validator + the query builder) is the write
- *     boundary; a readonly GRANT is strongly recommended there (Oracle IMP5).
+ *     boundary; a readonly GRANT is strongly recommended there.
  *
  * Connection resolution + the default-connection fallback:
  *   - When config('agent-mcp.connection') names a dedicated connection, that
@@ -42,8 +41,8 @@ use RuntimeException;
  *     hardens that clone. The default-connection fallback is therefore
  *     code-enforced read-only; a dedicated readonly DB user remains recommended.
  *
- * What the CUSTOMER must satisfy on the readonly DB user (NOT enforceable here,
- * documented per the plan; grant introspection is explicitly out of scope):
+ * What the CUSTOMER must satisfy on the readonly DB user (NOT enforceable here;
+ * grant introspection is explicitly out of scope):
  *   - MySQL:      GRANT SELECT only. No FILE privilege (blocks LOAD_FILE /
  *                 INTO OUTFILE / INTO DUMPFILE); keep secure_file_priv set.
  *   - PostgreSQL: a SELECT-only role that is NOT a member of pg_read_server_files
@@ -96,8 +95,7 @@ class ReadonlyConnectionResolver
 
     /**
      * Assert the resolved connection is configured for read-only safety, failing
-     * loudly otherwise. Currently enforces PDO::ATTR_EMULATE_PREPARES === false
-     * (Oracle CRIT1).
+     * loudly otherwise. Currently enforces PDO::ATTR_EMULATE_PREPARES === false.
      *
      * @throws RuntimeException When the connection name is unconfigured/invalid or
      *                          emulated prepares are enabled.
@@ -249,7 +247,7 @@ class ReadonlyConnectionResolver
         // refuses writes. MySQL has NO per-session read-only flag for a normal user,
         // so the timeout is all that is set at the session layer: on MySQL the SELECT
         // validator + query builder are the write boundary, and a readonly GRANT is
-        // strongly recommended (Oracle IMP5).
+        // strongly recommended.
         match ($connection->getDriverName()) {
             'mysql' => $connection->statement("SET SESSION max_execution_time = {$timeoutMs}"),
             'pgsql' => $this->hardenPostgres($connection, $timeoutMs),
@@ -281,7 +279,7 @@ class ReadonlyConnectionResolver
         return new RuntimeException(
             "The agent-mcp readonly connection [{$name}] has PDO::ATTR_EMULATE_PREPARES "
             .'enabled. Emulated prepares allow stacked-query injection and are rejected; '
-            .'remove the option so prepared statements are sent natively (Oracle CRIT1).'
+            .'remove the option so prepared statements are sent natively.'
         );
     }
 

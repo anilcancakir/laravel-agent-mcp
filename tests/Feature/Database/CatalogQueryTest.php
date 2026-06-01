@@ -5,8 +5,8 @@ use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-// CatalogQuery is the read-only catalog-SQL boundary the DB-health tools compose
-// (plan Step 2). These tests pin the security-critical contract: catalog SELECTs
+// CatalogQuery is the read-only catalog-SQL boundary the DB-health tools compose.
+// These tests pin the security-critical contract: catalog SELECTs
 // run through the hardened readonly connection with bindings only, never string
 // interpolation, so a crafted table name passed as a binding is a literal value
 // and can never alter the query structure.
