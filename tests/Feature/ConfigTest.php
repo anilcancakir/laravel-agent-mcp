@@ -2,7 +2,7 @@
 
 // Config defaults are loaded by TestCase::defineEnvironment() from config/agent-mcp.php.
 // Tests here assert that the resolved defaults match the package's contract; they do not
-// manually reload the file — the harness already does that at boot.
+// manually reload the file; the harness already does that at boot.
 
 use Anilcancakir\LaravelAgentMcp\Http\Middleware\KeyAuthMiddleware;
 
@@ -77,7 +77,7 @@ it('defaults logs channel to null so the active channel is resolved at runtime',
     expect(config('agent-mcp.logs.max_lines'))->toBe(200);
 });
 
-// v0.3.0 investigation tools: per-tool flags
+// Investigation tools: per-tool flags
 
 it('enables safe read-only investigation tools by default', function (): void {
     // Queue
@@ -117,7 +117,7 @@ it('disables sensitive investigation tools by default so the operator opts in', 
     expect(config('agent-mcp.tools.config_inspect'))->toBeFalse();
 });
 
-it('keeps the existing v0.2.0 tool flags unchanged', function (): void {
+it('keeps the core tool flags unchanged', function (): void {
     expect(config('agent-mcp.tools.db_schema'))->toBeTrue();
     expect(config('agent-mcp.tools.db_query'))->toBeTrue();
     expect(config('agent-mcp.tools.db_raw_select'))->toBeTrue();

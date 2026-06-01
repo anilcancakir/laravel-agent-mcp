@@ -127,7 +127,7 @@ return [
     */
 
     'tools' => [
-        // --- v0.2.0 tools (unchanged) ---
+        // --- Core tools ---
         'db_schema' => true,
         'db_query' => true,
         'db_raw_select' => true,
@@ -138,7 +138,7 @@ return [
         // but the default-off state signals intent clearly to the operator.
         'run_artisan' => false,
 
-        // --- v0.3.0 investigation tools ---
+        // --- Investigation tools ---
 
         // Queue: queue sizes + failed-job summaries are safe read-only reads.
         'queue_backlog' => true,

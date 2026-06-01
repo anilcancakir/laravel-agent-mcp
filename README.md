@@ -139,7 +139,7 @@ php artisan agent-mcp:install --mode=cli
 **CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server. Activates the `agent-mcp-cli` boost skill. Use this for one-off calls, scripts, CI pipelines, or when you do not want to expose an HTTP endpoint.
 
 > [!NOTE]
-> Commit `.agent-mcp.json`. It records the chosen mode (`{"mode":"mcp","version":1}`) for the whole team. When the file is absent (installs before v0.5.0), the package behaves as `mcp`, so upgrading is non-breaking.
+> Commit `.agent-mcp.json`. It records the chosen mode (`{"mode":"mcp","version":1}`) for the whole team. When the file is absent, the package defaults to `mcp`, so a missing file is never a breaking state.
 
 After install, wire boost so it injects the active mode's skill and guideline:
 
