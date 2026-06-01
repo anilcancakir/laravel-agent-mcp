@@ -29,8 +29,9 @@ use JsonException;
  * silently downgrading to local.
  *
  * On any failure (missing config, bad scheme, non-2xx, transport error, malformed body) a
- * RemoteInvocationException is thrown with a generic message: no url, no response body, no
- * request body, no key.
+ * RemoteInvocationException is thrown with a message that never carries the url, key, request
+ * body, or HTTP response body. A JSON-RPC error envelope (e.g. a disabled or unknown tool) is
+ * the one case whose protocol message is surfaced, since it names the tool and not any secret.
  */
 class RemoteToolClient
 {
@@ -172,7 +173,24 @@ class RemoteToolClient
             throw new RemoteInvocationException('Remote returned a malformed response.');
         }
 
-        if (! is_array($decoded) || ! isset($decoded['result']) || ! is_array($decoded['result'])) {
+        if (! is_array($decoded)) {
+            throw new RemoteInvocationException('Remote returned a malformed response.');
+        }
+
+        // A JSON-RPC error envelope: most often a tool that is disabled or not
+        // registered on the server. Surface the protocol error message (it names
+        // the tool, never the url or key) so the caller knows why it was rejected.
+        if (isset($decoded['error']) && is_array($decoded['error'])) {
+            $message = $decoded['error']['message'] ?? null;
+
+            throw new RemoteInvocationException(
+                is_string($message) && $message !== ''
+                    ? 'Remote rejected the call: '.$message
+                    : 'Remote rejected the call.'
+            );
+        }
+
+        if (! isset($decoded['result']) || ! is_array($decoded['result'])) {
             throw new RemoteInvocationException('Remote response is missing a result envelope.');
         }
 

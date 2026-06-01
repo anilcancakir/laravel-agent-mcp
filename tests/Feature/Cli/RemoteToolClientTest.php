@@ -295,3 +295,30 @@ it('throws a generic typed error when the result envelope is missing or malforme
     expect(fn () => (new RemoteToolClient)->callTool('db_schema', []))
         ->toThrow(RemoteInvocationException::class);
 });
+
+it('surfaces a remote JSON-RPC error (disabled or unknown tool) with the protocol message, never the key', function (): void {
+    // The server returns a JSON-RPC error envelope for a tool that is disabled or not
+    // registered. The CLI must surface that protocol message (it names the tool, useful
+    // for the caller) and must never leak the key.
+    Http::fake([
+        'remote.test/*' => Http::response(json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'error' => ['code' => -32602, 'message' => 'Tool [cache_keys] not found.'],
+        ]), 200),
+    ]);
+
+    $caught = null;
+
+    try {
+        (new RemoteToolClient)->callTool('cache_keys', []);
+    } catch (RemoteInvocationException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+    expect($caught->getMessage())->toContain('cache_keys');
+    expect($caught->getMessage())->not->toContain('missing a result envelope');
+    expect($caught->getMessage())->not->toContain('super-secret-key-value');
+    expect($caught->getMessage())->not->toContain('Bearer');
+});
