@@ -17,8 +17,9 @@ use RuntimeException;
  * a sensitive-tool tty refusal, or a remote transport failure.
  *
  * Mode is default-local (in-process, gated by the tool's own authorize()); it switches to
- * remote when AGENT_MCP_URL is set, and --local / --remote force the choice. Sensitive
- * default-OFF tools refuse to print to a terminal without --allow-tty (scrollback safety).
+ * remote when a remote url is configured (committed url in .agent-mcp.json or AGENT_MCP_URL),
+ * and --local / --remote force the choice. Sensitive default-OFF tools refuse to print to a
+ * terminal without --allow-tty (scrollback safety).
  */
 class CallToolCommand extends AbstractMcpCliCommand
 {
@@ -26,7 +27,7 @@ class CallToolCommand extends AbstractMcpCliCommand
     protected $signature = 'agent-mcp:call
         {tool : The tool name (e.g. db_schema)}
         {input? : JSON arguments object; omit to read STDIN}
-        {--remote : Force remote mode (forward to AGENT_MCP_URL)}
+        {--remote : Force remote mode (forward to the configured url: committed .agent-mcp.json url or AGENT_MCP_URL)}
         {--local : Force local mode (run in-process)}
         {--allow-tty : Allow a sensitive tool to print to a terminal}
         {--raw : Emit the raw payload without pretty-printing}';

@@ -20,7 +20,7 @@ class ToolSchemaCommand extends AbstractMcpCliCommand
     /** @var string */
     protected $signature = 'agent-mcp:schema
         {tool : The tool name (e.g. db_schema)}
-        {--remote : Force remote mode (query AGENT_MCP_URL)}
+        {--remote : Force remote mode (query the configured url: committed .agent-mcp.json url or AGENT_MCP_URL)}
         {--local : Force local mode (read the local roster)}';
 
     /** @var string */

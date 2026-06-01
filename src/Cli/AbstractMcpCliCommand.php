@@ -17,7 +17,7 @@ use RuntimeException;
  *   - ensureEnabled(): honors the master config('agent-mcp.enabled') switch, mirroring the
  *     service provider's inert-when-disabled contract. The HTTP route is skipped when the
  *     package is disabled; the CLI must be too.
- *   - resolveMode(): default local; AGENT_MCP_URL present -> remote; --local / --remote force.
+ *   - resolveMode(): default local; committed url or AGENT_MCP_URL present -> remote; --local / --remote force.
  *   - invokeLocal(): runs a tool in-process by mirroring laravel/mcp's CallTool dispatch.
  *     The tool's own handle() runs authorize() (the per-tool enable gate) + audit() +
  *     redaction first, so the CLI inherits every guard. The exit code comes from
@@ -99,7 +99,8 @@ abstract class AbstractMcpCliCommand extends Command
 
     /**
      * Resolve the invocation mode: --local / --remote force the choice; otherwise remote
-     * when the remote endpoint is configured (AGENT_MCP_URL present), else local.
+     * when a remote url is configured (committed url in .agent-mcp.json or AGENT_MCP_URL env),
+     * else local.
      */
     protected function resolveMode(): string
     {
