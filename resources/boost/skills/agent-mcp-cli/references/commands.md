@@ -9,10 +9,15 @@ is 0 on success and non-zero on any error.
 ## Mode selection (all commands)
 
 - Default: local (in-process against the current app).
-- Auto-remote: when `AGENT_MCP_URL` is set in the environment, the command forwards to that
-  remote `/agent-mcp` endpoint using `AGENT_MCP_KEY` as a Bearer token.
+- Auto-remote: when a remote URL is configured, the command forwards to that endpoint using
+  `AGENT_MCP_KEY` as a Bearer token. The URL is resolved in this order (first wins):
+  1. `AGENT_MCP_URL` environment variable (overrides everything for the current session).
+  2. `url` key committed in `.agent-mcp.json` (set once via `php artisan agent-mcp:install --url=<https-url>`).
+  The URL must use `https`; plain `http` is only accepted for loopback (`localhost`, `127.0.0.1`, `::1`).
+  A configured URL with no `AGENT_MCP_KEY` in the environment errors loudly; the command never
+  silently falls back to local mode.
 - `--local`: force in-process execution.
-- `--remote`: force remote forwarding (requires `AGENT_MCP_URL` + `AGENT_MCP_KEY`).
+- `--remote`: force remote forwarding (requires a configured URL and `AGENT_MCP_KEY`).
 
 ## agent-mcp:call
 

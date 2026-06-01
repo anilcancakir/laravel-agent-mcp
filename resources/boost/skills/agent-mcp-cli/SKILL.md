@@ -26,7 +26,20 @@ Call the agent-mcp read-only tools straight from the shell, without registering 
 ## Local and remote
 
 - Local (default): the command runs the tool in-process against the current app. Use it from inside the project or on the server.
-- Remote: set `AGENT_MCP_URL` (the remote `/agent-mcp` URL) and `AGENT_MCP_KEY` (the server key) and the command forwards there instead. Remote mode is auto-selected when `AGENT_MCP_URL` is set; `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in output.
+- Remote: the command forwards to a remote `/agent-mcp` endpoint and uses `AGENT_MCP_KEY` as a Bearer token. Remote mode is auto-selected when a remote URL is configured; `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in output.
+
+### Configuring a remote URL
+
+There are two ways to supply the remote URL (env wins over file):
+
+1. **Committed URL** (recommended for teams): run `php artisan agent-mcp:install --url=https://your-app.example.com/agent-mcp` to write a `url` key into `.agent-mcp.json` and commit that file. Every developer and CI run then forwards to the same host with no per-environment variable needed beyond `AGENT_MCP_KEY`.
+2. **Env override**: set `AGENT_MCP_URL` in the environment. This overrides any committed URL for the current shell session without touching `.agent-mcp.json`.
+
+Security constraints:
+- The URL must use `https`. Plain `http` is only accepted for loopback addresses (`localhost`, `127.0.0.1`, `::1`), so the Bearer key is never sent in plaintext over a real network.
+- `AGENT_MCP_KEY` is always env-only; it is never written to `.agent-mcp.json` or any committed file.
+- Committing a URL is a credential-routing decision: every holder of the key who runs `agent-mcp:call` will POST to that host. Review the URL before committing.
+- A committed URL with no `AGENT_MCP_KEY` in the environment causes a loud error; the command never silently falls back to local mode.
 
 ## Security notes
 
