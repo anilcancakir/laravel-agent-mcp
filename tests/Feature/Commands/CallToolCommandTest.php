@@ -1,7 +1,9 @@
 <?php
 
 use Anilcancakir\LaravelAgentMcp\Commands\CallToolCommand;
+use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
@@ -116,6 +118,34 @@ it('forwards to the remote endpoint with a Bearer key and prints the result, nev
 
     putenv('AGENT_MCP_URL');
     putenv('AGENT_MCP_KEY');
+});
+
+it('fails loudly end-to-end and sends nothing when only a bad-scheme url is committed', function (): void {
+    // Regression: a hand-edited bad-scheme committed url with no env override must route
+    // to remote (resolveMode sees configured() true), hit the TLS guard, and fail loudly,
+    // never silently running the tool in-process. The key is set so the failure is the
+    // scheme guard, not a missing key; either way nothing leaves the box.
+    putenv('AGENT_MCP_URL');
+    putenv('AGENT_MCP_KEY=super-secret-key-value');
+    File::put(InstallMode::path(), json_encode([
+        'mode' => 'cli',
+        'version' => 1,
+        'url' => 'http://remote.test/agent-mcp',
+    ]));
+
+    Http::fake();
+
+    $result = runCall(['tool' => 'db_schema', 'input' => '{"table":"users"}']);
+
+    expect($result['status'])->not->toBe(0);
+    expect($result['stderr'])->not->toBe('');
+    expect($result['stderr'])->not->toContain('remote.test');
+    expect($result['stderr'])->not->toContain('super-secret-key-value');
+    expect($result['stdout'])->toBe('');
+    Http::assertNothingSent();
+
+    putenv('AGENT_MCP_KEY');
+    File::delete(InstallMode::path());
 });
 
 it('maps a remote isError result to a non-zero exit code', function (): void {

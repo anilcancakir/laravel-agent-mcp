@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Http;
 // via nextCursor, and mirrors StdioBridgeCommand's scrub discipline: the key only ever
 // travels in the Authorization header, never in a thrown message or any echoed output.
 // The remote URL is single-sourced: AGENT_MCP_URL env wins, else the committed url in
-// .agent-mcp.json (InstallMode::url()).
+// .agent-mcp.json (InstallMode::committedUrl(), read raw so a bad scheme errors loudly).
 
 beforeEach(function (): void {
     putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
@@ -98,10 +98,10 @@ it('throws and sends nothing when an env url has a bad (plaintext) scheme', func
     Http::assertNothingSent();
 });
 
-it('treats a hand-edited bad-scheme committed url as no remote intent', function (): void {
-    // InstallMode::url() filters through RemoteUrl::valid(), so a hand-edited bad-scheme
-    // committed url reads as null: rawUrl() is null -> the generic "not configured" error,
-    // never a silent local downgrade and never a request.
+it('surfaces a hand-edited bad-scheme committed url as a loud TLS error, never a silent local downgrade', function (): void {
+    // committedUrl() reads the value raw, so a hand-edited bad-scheme committed url stays
+    // non-null: configured() is true (remote intent present) and rawUrl() reaches the
+    // RemoteUrl guard in post(), which errors loudly before any request leaves the box.
     putenv('AGENT_MCP_URL');
     File::put(InstallMode::path(), json_encode([
         'mode' => 'cli',
@@ -109,7 +109,7 @@ it('treats a hand-edited bad-scheme committed url as no remote intent', function
         'url' => 'http://remote.test/agent-mcp',
     ]));
 
-    expect((new RemoteToolClient)->configured())->toBeFalse();
+    expect((new RemoteToolClient)->configured())->toBeTrue();
 
     Http::fake();
 
@@ -123,6 +123,7 @@ it('treats a hand-edited bad-scheme committed url as no remote intent', function
 
     expect($caught)->not->toBeNull();
     expect($caught->getMessage())->not->toContain('remote.test');
+    expect($caught->getMessage())->not->toContain('http://');
     Http::assertNothingSent();
 });
 

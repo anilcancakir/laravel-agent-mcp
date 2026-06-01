@@ -18,7 +18,7 @@ use JsonException;
  * bridging a stdin loop.
  *
  * The remote URL is single-sourced through rawUrl(): the AGENT_MCP_URL env override wins,
- * else the committed url in .agent-mcp.json (InstallMode::url()). The key is env-only
+ * else the committed url in .agent-mcp.json (InstallMode::committedUrl()). The key is env-only
  * (AGENT_MCP_KEY via Env::get), never read from config, a file, or request data, so a
  * caller cannot redirect or exfiltrate the credential. The remote agent-mcp server accepts
  * a single tools/call POST with no initialize handshake.
@@ -203,10 +203,11 @@ class RemoteToolClient
      * Resolve the remote endpoint URL from the single source of truth: the AGENT_MCP_URL
      * env override (trimmed, non-empty) wins, else the committed url in .agent-mcp.json.
      *
-     * The env branch is read RAW (not filtered through RemoteUrl) so a bad-scheme env
-     * override stays non-null and reaches the loud TLS guard in post(). InstallMode::url()
-     * already filters the committed value through RemoteUrl::valid(), so a hand-edited
-     * bad-scheme committed url reads as null here (no remote intent). This is the only
+     * Both branches are read RAW so a bad-scheme url from EITHER source stays non-null and
+     * reaches the loud TLS guard in post(): the env override is taken verbatim, and the
+     * committed value comes from InstallMode::committedUrl() (the unfiltered reader, NOT the
+     * TLS-filtered url()). This closes the env-vs-file asymmetry: a configured-but-unusable
+     * committed url errors loudly rather than silently downgrading to local. This is the only
      * place env-then-file resolution lives; configured() and post() both consume it.
      */
     private function rawUrl(): ?string
@@ -221,7 +222,7 @@ class RemoteToolClient
             }
         }
 
-        return InstallMode::url();
+        return InstallMode::committedUrl();
     }
 
     /**
