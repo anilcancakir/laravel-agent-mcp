@@ -6,7 +6,7 @@ use Laravel\Mcp\Server;
 
 /**
  * Guarantees no stack trace ever leaves the MCP error path, even when app.debug is
- * true (Oracle IMP6).
+ * true.
  *
  * The stock Laravel\Mcp\Server::handle() catches a thrown Throwable, reports it, and
  * then either sends a generic JSON-RPC error (app.debug=false) or re-throws the raw

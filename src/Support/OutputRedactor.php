@@ -7,7 +7,7 @@ namespace Anilcancakir\LaravelAgentMcp\Support;
  *
  * Replaces matches of the PCRE patterns in config('agent-mcp.redaction.patterns')
  * with a [REDACTED] marker. This is BEST-EFFORT defense-in-depth, NOT a security
- * guarantee (Oracle IMP4): legitimately-stored data that resembles a secret will
+ * guarantee: legitimately-stored data that resembles a secret will
  * be redacted, and novel secret formats will pass through undetected.
  *
  * The real security boundary is the readonly DB grant + the SELECT validator, behind

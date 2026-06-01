@@ -15,7 +15,7 @@ use PhpMyAdmin\SqlParser\TokensList;
  * This is an ALLOWLIST grammar, not a keyword blocklist: it accepts only the
  * known-safe shape (one well-formed SELECT, or a CTE whose every part is a
  * SELECT) and rejects everything else. It is defense-in-depth layered on the
- * read-only connection (Oracle CRIT1/CRIT2), never the sole boundary.
+ * read-only connection, never the sole boundary.
  *
  * SPIKE (phpmyadmin/sql-parser ^5.10, run 2026-05-30 against the three
  * dialects this package supports):

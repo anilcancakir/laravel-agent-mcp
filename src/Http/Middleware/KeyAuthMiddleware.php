@@ -15,8 +15,8 @@ use Symfony\Component\HttpFoundation\Response;
  * closes the hash_equals('', '') fail-open (two empty strings compare equal).
  *
  * Rejections RETURN a bare 401 response and never throw, so app.debug can never
- * render a stack trace from this layer (Oracle IMP3). The compare is constant-time
- * (hash_equals, Oracle IMP4). The configured key is never logged or echoed.
+ * render a stack trace from this layer. The compare is constant-time
+ * (hash_equals). The configured key is never logged or echoed.
  */
 class KeyAuthMiddleware
 {

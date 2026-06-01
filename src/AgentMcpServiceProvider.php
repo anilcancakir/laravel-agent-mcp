@@ -20,7 +20,7 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
  * Bootstraps the package: config, install command, transport registration, the
  * agent-mcp throttle limiter, and publishable agent assets.
  *
- * Route registration is config-gated (Oracle IMP3): when both enabled and
+ * Route registration is config-gated: when both enabled and
  * auto_register are true the HTTP + stdio transports are wired at boot; when
  * auto_register is false the package registers nothing and the customer wires the
  * server manually in routes/ai.php. enabled is the master kill switch.
@@ -63,11 +63,11 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         $this->registerAuditChannel();
 
         // 2. Publish the agent assets (config is handled by hasConfigFile; this is the
-        //    client config example authored in Step 16). Console-only, matching the
+        //    client config example). Console-only, matching the
         //    framework convention; the path map is lazy.
         $this->registerPublishing();
 
-        // 3. Config-gated transport registration (Oracle IMP3).
+        // 3. Config-gated transport registration.
         if (! config('agent-mcp.enabled') || ! config('agent-mcp.auto_register')) {
             return;
         }
@@ -106,7 +106,7 @@ class AgentMcpServiceProvider extends PackageServiceProvider
     /**
      * Define the throttle:agent-mcp rate limiter referenced by the default route
      * middleware. Keyed by a sha1 FINGERPRINT of the presented key, not the client
-     * IP (Oracle IMP1): behind the stdio bridge or a proxy every caller collapses to
+     * IP: behind the stdio bridge or a proxy every caller collapses to
      * one IP, so an IP bucket would be useless. The raw key is never used as the
      * bucket key, only its sha1 fingerprint. Requests with no presented key fall into
      * a shared 'unauthenticated' bucket (the middleware rejects them anyway). Mirrors
@@ -159,7 +159,7 @@ class AgentMcpServiceProvider extends PackageServiceProvider
 
     /**
      * Register the publishable agent assets (client config example). The stub
-     * file is authored in Step 16; the path map is lazy, so referencing it here
+     * file path map is lazy, so referencing it here
      * is safe before it exists.
      */
     private function registerPublishing(): void
