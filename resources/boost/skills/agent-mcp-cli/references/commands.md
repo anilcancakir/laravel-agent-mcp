@@ -15,7 +15,8 @@ is 0 on success and non-zero on any error.
   2. `url` key committed in `.agent-mcp.json` (set once via `php artisan agent-mcp:install --url=<https-url>`).
   The URL must use `https`; plain `http` is only accepted for loopback (`localhost`, `127.0.0.1`, `::1`).
   A configured URL with no `AGENT_MCP_KEY` in the environment errors loudly; the command never
-  silently falls back to local mode.
+  silently falls back to local mode. `AGENT_MCP_KEY` is read from `.env` automatically by
+  `php artisan`, so you never export it by hand or pass it on the command line; just run the command.
 - `--local`: force in-process execution.
 - `--remote`: force remote forwarding (requires a configured URL and `AGENT_MCP_KEY`).
 

@@ -38,7 +38,7 @@ There are two ways to supply the remote URL (env wins over file):
 
 Security constraints:
 - The URL must use `https`. Plain `http` is only accepted for loopback addresses (`localhost`, `127.0.0.1`, `::1`), so the Bearer key is never sent in plaintext over a real network.
-- `AGENT_MCP_KEY` is always env-only; it is never written to `.agent-mcp.json` or any committed file.
+- `AGENT_MCP_KEY` is always env-only; it is never written to `.agent-mcp.json` or any committed file. It lives in `.env`, which `php artisan` loads automatically, so you never export it by hand or pass it on the command line; just run `agent-mcp:call` directly.
 - Committing a URL is a credential-routing decision: every holder of the key who runs `agent-mcp:call` will POST to that host. Review the URL before committing.
 - A committed URL with no `AGENT_MCP_KEY` in the environment causes a loud error; the command never silently falls back to local mode.
 
