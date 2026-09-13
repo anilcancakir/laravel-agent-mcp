@@ -427,7 +427,7 @@ MySQL, PostgreSQL, and SQLite. MariaDB is not officially supported because its s
 
 | PHP | Laravel | laravel/mcp |
 |-----|---------|-------------|
-| 8.3, 8.4, 8.5 | 11, 12, 13 | `>=0.6 <0.8` |
+| 8.3, 8.4, 8.5 | 12, 13 | `>=0.6 <0.8` |
 
 The `laravel/mcp` pin is intentional: it is pre-1.0 with breaking changes between minors, so the tight constraint prevents silent upgrades to an incompatible API. Check the changelog before widening it.
 
@@ -444,7 +444,7 @@ See [CHANGELOG](CHANGELOG.md) for the release history and notable changes.
 
 ## Contributing
 
-Issues and pull requests are welcome. Run the suite with `composer test`, the linter with `vendor/bin/pint`, and static analysis with `composer analyse` before opening a PR. Tests ship green on PHP 8.3 to 8.5, Laravel 11 to 13, and both laravel/mcp 0.6 and 0.7.
+Issues and pull requests are welcome. Run the suite with `composer test`, the linter with `vendor/bin/pint`, and static analysis with `composer analyse` before opening a PR. Tests ship green on PHP 8.3 to 8.5, Laravel 12 to 13, and both laravel/mcp 0.6 and 0.7.
 
 ## Security vulnerabilities
 

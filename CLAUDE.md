@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 25 read-only tools to LLM agents. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 11/12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <0.8`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
+`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 25 read-only tools to LLM agents. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <0.8`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
 
 ## Commands
 

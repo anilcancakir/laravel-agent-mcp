@@ -24,8 +24,8 @@ use Laravel\Mcp\Server\Attributes\Name;
  * only. Middleware are returned as NAMES (class strings) only; no signed-route
  * keys or closure internals are emitted.
  *
- * Targets Laravel 11+: uses gatherMiddleware/gatherRouteMiddleware APIs on the
- * Router which are stable across L11/L12.
+ * Targets Laravel 12+: uses gatherMiddleware/gatherRouteMiddleware APIs on the
+ * Router which are stable across L12/L13.
  */
 #[Name('inspect_route')]
 #[Description(<<<'TEXT'

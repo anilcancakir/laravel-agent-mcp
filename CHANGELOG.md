@@ -4,6 +4,14 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Removed
+
+- Laravel 11 support. `illuminate/contracts` is now `^12.0||^13.0`, `orchestra/testbench` is now `^10.0||^11.0`, and the Laravel 11 rows are gone from the CI matrix.
+
+  Laravel 11 is end of life and no longer receives security fixes, so Composer cannot install it at all: every `laravel/framework` 11.x release reachable from any `orchestra/testbench` 9.x is blocked by an unpatched advisory. `PKSA-mdq4-51ck-6kdq` (CRLF injection in the default email rule) covers the entire `>=11.0.0,<12.0.0` range, including the final v11.56.1. It was fixed in 12.60.0 and 13.10.0 and will never be fixed in 11.x. The alternative was to turn off Composer's advisory blocking, which is the wrong trade for a package whose whole promise is that it is safe to point an agent at. If your application is on Laravel 11, stay on v1.0.0 until you upgrade.
+
 ## 1.0.0 - 2026-06-01
 
 Initial public release. A secure, read-only Model Context Protocol (MCP) server for Laravel that gives AI coding agents safe live access to a running app.
