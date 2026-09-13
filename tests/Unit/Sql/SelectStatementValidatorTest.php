@@ -110,6 +110,22 @@ it('rejects an unsafe query', function (string $sql): void {
     // which the accept dataset covers.
     'mysql double-quoted literal spelling a forbidden name' => 'SELECT id FROM users WHERE kind = "copy" LIMIT 1',
     'double-quoted column named after a forbidden primitive' => 'SELECT "copy" FROM articles LIMIT 1',
+    // Statement types the shape allowlist refuses, with nothing proving it until
+    // now, plus the forbidden names that were listed without a test.
+    'bare truncate statement' => 'TRUNCATE TABLE users',
+    'bare alter statement' => 'ALTER TABLE users ADD COLUMN x INT',
+    'bare create statement' => 'CREATE TABLE evil (id INT)',
+    'bare grant statement' => 'GRANT ALL ON users TO PUBLIC',
+    'bare drop statement' => 'DROP TABLE users',
+    'line-comment-smuggled statement' => "SELECT 1 -- \nDROP TABLE users",
+    'block-comment-smuggled statement' => 'SELECT 1 /* comment */ DROP TABLE users',
+    'postgres pg_read_binary_file' => "SELECT pg_read_binary_file('/etc/passwd')",
+    'postgres pg_ls_dir' => "SELECT pg_ls_dir('/etc')",
+    'postgres dblink' => "SELECT dblink('x', 'y')",
+    // The dot operator splits pg_catalog. from pg_read_file, but the function
+    // name still lands as a scanned identifier token, so this is rejected by
+    // the same forbidden-token scan as the bare form, not by accident of parsing.
+    'schema-qualified pg_read_file' => "SELECT pg_catalog.pg_read_file('/etc/passwd')",
 ]);
 
 it('does not leak the offending sql in the exception message', function (): void {
