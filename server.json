@@ -1,0 +1,11 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.anilcancakir/laravel-agent-mcp",
+    "description": "Read-only MCP server for Laravel: agent access to database, logs, queue, cache, routes, config.",
+    "repository": {
+        "url": "https://github.com/anilcancakir/laravel-agent-mcp",
+        "source": "github"
+    },
+    "websiteUrl": "https://github.com/anilcancakir/laravel-agent-mcp",
+    "version": "1.1.0"
+}

@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `laravel/mcp` requirement widened from `>=0.6 <0.8` to `>=0.6 <0.10`. A file-level diff between v0.7.2 and v0.9.5 found `Request`, `Response`, `Tool`, the three attributes, both transports and `Server::handle()` byte-identical, and v0.9.0's only "Upgrading To" items are client-side, which this package never touches. Tool-call exception handling moved into a new `ToolInvoker` in v0.8.1: it catches every `Throwable` before `StripsErrorTraces` sees it, but only produces a generic message because that trait has already forced `app.debug` off, so the trait stays load-bearing. The suite holds across 0.6.7, 0.7.2, 0.8.2 and 0.9.5.
 
+### Added
+
+- `server.json`, the Model Context Protocol registry manifest, with a test that keeps its version in step with the server's own `#[Version]` attribute.
+
+### Fixed
+
+- The server reported itself as `1.0.0` over MCP `initialize` after 1.1.0 shipped, because `#[Version]` was never bumped. A client checking whether it was running a patched build was told the version [GHSA-36q8-qrv7-frf6](https://github.com/anilcancakir/laravel-agent-mcp/security/advisories/GHSA-36q8-qrv7-frf6) lists as affected.
+
 ## 1.1.0 - 2026-09-13
 
 ### Security
