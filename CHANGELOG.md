@@ -4,7 +4,15 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.1.0 - 2026-09-13
+
+### Security
+
+- The SELECT validator accepted a forbidden identifier that was quoted, unicode-escaped, or wrapped in a function that executes its string argument. `SELECT "pg_read_file"('/etc/passwd')` passed, and the read-only connection does not contain a function that only reads. See [GHSA-36q8-qrv7-frf6](https://github.com/anilcancakir/laravel-agent-mcp/security/advisories/GHSA-36q8-qrv7-frf6) for the classes, the preconditions and the workaround. Affected: `>=0.1.0, <=1.0.0`.
+
+  The identifier scan now covers quoted identifiers, refuses a quoted name whose value changes while being unescaped, and the name list gained the `dblink_` family, the `pg_` file and directory siblings, and the xml functions that execute a query string.
+
+  Naming those functions closes those functions and not the class they belong to. The payload sits in a single-quoted literal, which the scan skips by design because that exclusion is what keeps an ordinary `WHERE name = 'copy'` working. The class documentation now says so: this is an allowlist on statement shape with a known-incomplete blocklist of identifier names layered inside it.
 
 ### Removed
 
