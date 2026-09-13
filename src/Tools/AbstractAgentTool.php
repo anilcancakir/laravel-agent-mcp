@@ -19,7 +19,7 @@ use Laravel\Mcp\Server\Tool;
  * grants the full read surface. The only access decision left at the tool is the
  * per-tool enable flag, which lets an operator switch individual tools off.
  *
- * Verified against the INSTALLED laravel/mcp source (>=0.7 <0.8), since docs and
+ * Verified against the INSTALLED laravel/mcp source (>=0.7 <0.10), since docs and
  * source disagree on these pre-1.0 details (Research Summary CAUTION):
  *   - Tool::handle is NOT declared on the base; it is invoked by CallTool via
  *     Container::call([$tool, 'handle']) (method injection). Subclasses declare
