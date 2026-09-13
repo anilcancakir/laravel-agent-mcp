@@ -4,6 +4,20 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Removed
+
+- Laravel 11 support. `illuminate/contracts` is now `^12.0||^13.0`, `orchestra/testbench` is now `^10.0||^11.0`, and the Laravel 11 rows are gone from the CI matrix.
+
+  Two independent reasons, either of which would be enough on its own.
+
+  Composer cannot install Laravel 11 at all. Every `laravel/framework` 11.x release reachable from any `orchestra/testbench` 9.x, up to and including the current head v11.56.1, is withheld by three open advisories: `PKSA-m5cs-t1y6-qpcs` (`<12.61.1`), `PKSA-3r5d-mb8f-1qw9` (`<12.60.0`) and `PKSA-mdq4-51ck-6kdq` (`>=11.0.0,<12.0.0`). Each was fixed on the 12 and 13 branches and none was backported, which is what end of life looks like in practice. The alternative was to switch off Composer's advisory blocking or add the IDs to an ignore list, and that is the wrong trade for a package built to be safe to point an agent at.
+
+  Maintaining it would mean carrying `orchestra/testbench` `^9.0` forever. Testbench tracks framework majors one to one (v9.17.0 requires `laravel/framework ^11.50.0`, v10.11.0 requires `^12.55.0`, v11.2.0 requires `^13.23.0`), so a Laravel 11 row pins the 9 line alongside the newer ones indefinitely.
+
+  If your application is on Laravel 11, stay on v1.0.0 until you upgrade.
+
 ## 1.0.0 - 2026-06-01
 
 Initial public release. A secure, read-only Model Context Protocol (MCP) server for Laravel that gives AI coding agents safe live access to a running app.
