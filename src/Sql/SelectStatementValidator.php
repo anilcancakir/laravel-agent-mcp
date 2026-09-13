@@ -8,6 +8,7 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
 use PhpMyAdmin\SqlParser\Statements\WithStatement;
 use PhpMyAdmin\SqlParser\Token;
 use PhpMyAdmin\SqlParser\TokensList;
+use PhpMyAdmin\SqlParser\TokenType;
 
 /**
  * Validates a raw SQL string as a SINGLE read-only SELECT.
@@ -35,7 +36,7 @@ use PhpMyAdmin\SqlParser\TokensList;
  * standing there. Treat any change to that scan as a change to the boundary
  * itself, not as a refinement behind one.
  *
- * SPIKE (phpmyadmin/sql-parser ^5.10, run 2026-05-30 against the three
+ * SPIKE (phpmyadmin/sql-parser ^6.0, run 2026-09-13 against the three
  * dialects this package supports):
  * - MySQL, PostgreSQL and SQLite read-only SELECT shapes (WHERE, JOIN, ORDER
  *   BY, LIMIT, aggregates, now(), read-only CTEs) all parse to a single
@@ -159,7 +160,13 @@ final class SelectStatementValidator
         $this->assertReadOnlyStatement($parser->statements[0]);
 
         // 5. No file/side-effect primitive may appear anywhere in the parsed
-        //    token stream, even inside an otherwise-valid SELECT.
+        //    token stream, even inside an otherwise-valid SELECT. An absent
+        //    token list would skip the only layer standing in front of the file
+        //    primitives, so it rejects rather than scanning nothing.
+        if ($parser->list === null) {
+            throw UnsafeQueryException::notReadOnlySelect();
+        }
+
         $this->assertNoForbiddenTokens($parser->list);
     }
 
@@ -299,15 +306,15 @@ final class SelectStatementValidator
      */
     private function isIdentifierToken(Token $token): bool
     {
-        if ($token->type === Token::TYPE_KEYWORD || $token->type === Token::TYPE_NONE) {
+        if ($token->type === TokenType::Keyword || $token->type === TokenType::None) {
             return true;
         }
 
-        if ($token->type === Token::TYPE_SYMBOL) {
+        if ($token->type === TokenType::Symbol) {
             return true;
         }
 
-        return $token->type === Token::TYPE_STRING
+        return $token->type === TokenType::String
             && ($token->flags & Token::FLAG_STRING_DOUBLE_QUOTES) !== 0;
     }
 }

@@ -39,12 +39,13 @@ updates:
       - dependency-name: "laravel/mcp"
         versions:
           - ">= 0.8"
-      # phpmyadmin/sql-parser 6.0 is a breaking major (the SELECT-only validator
-      # depends on the 5.x parser API); a 6.0 port is a deliberate task, not an
-      # auto-PR. 5.x minor/patch still flow through the group above.
+      # phpmyadmin/sql-parser is pinned to ^6.0 and its majors break the parser
+      # API the SELECT-only validator reads (6.0 moved the token types to the
+      # TokenType enum); a 7.0 port must be a deliberate, corpus-verified task,
+      # not an auto-PR. 6.x minor/patch still flow through the group above.
       - dependency-name: "phpmyadmin/sql-parser"
-        update-types:
-          - "version-update:semver-major"
+        versions:
+          - ">= 7.0"
 
   - package-ecosystem: github-actions
     directory: /
