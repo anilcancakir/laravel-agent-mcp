@@ -4,6 +4,12 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- `phpmyadmin/sql-parser` requirement moved from `^5.10` to `^6.0`. The SELECT-only validator's token scan now compares against the `PhpMyAdmin\SqlParser\TokenType` enum that 6.0 introduced in place of the `Token::TYPE_*` constants, and rejects a query whose parser produced no token list at all. The accepted and rejected shapes are unchanged: every case in the validator corpus keeps the verdict and the mechanism it had on 5.11.1.
+
 ## 1.1.0 - 2026-09-13
 
 ### Security
