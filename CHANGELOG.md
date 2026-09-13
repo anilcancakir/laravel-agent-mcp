@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `phpmyadmin/sql-parser` requirement moved from `^5.10` to `^6.0`. The SELECT-only validator's token scan now compares against the `PhpMyAdmin\SqlParser\TokenType` enum that 6.0 introduced in place of the `Token::TYPE_*` constants, and rejects a query whose parser produced no token list at all. The accepted and rejected shapes are unchanged: every case in the validator corpus keeps the verdict and the mechanism it had on 5.11.1.
 
+- `laravel/mcp` requirement widened from `>=0.6 <0.8` to `>=0.6 <0.10`. A file-level diff between v0.7.2 and v0.9.5 found `Request`, `Response`, `Tool`, the three attributes, both transports and `Server::handle()` byte-identical, and v0.9.0's only "Upgrading To" items are client-side, which this package never touches. Tool-call exception handling moved into a new `ToolInvoker` in v0.8.1: it catches every `Throwable` before `StripsErrorTraces` sees it, but only produces a generic message because that trait has already forced `app.debug` off, so the trait stays load-bearing. The suite holds across 0.6.7, 0.7.2, 0.8.2 and 0.9.5.
+
 ## 1.1.0 - 2026-09-13
 
 ### Security

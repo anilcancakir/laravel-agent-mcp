@@ -34,11 +34,11 @@ updates:
           - minor
           - patch
     ignore:
-      # laravel/mcp is pinned to >=0.6 <0.8 and is pre-1.0 with breaking minors;
-      # a 0.8+ bump must be a deliberate, tested constraint widen, not an auto-PR.
+      # laravel/mcp is pinned to >=0.6 <0.10 and is pre-1.0 with breaking minors;
+      # a 0.10+ bump must be a deliberate, tested constraint widen, not an auto-PR.
       - dependency-name: "laravel/mcp"
         versions:
-          - ">= 0.8"
+          - ">= 0.10"
       # phpmyadmin/sql-parser is pinned to ^6.0 and its majors break the parser
       # API the SELECT-only validator reads (6.0 moved the token types to the
       # TokenType enum); a 7.0 port must be a deliberate, corpus-verified task,
