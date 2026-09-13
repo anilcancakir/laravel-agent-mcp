@@ -14,8 +14,15 @@ use PhpMyAdmin\SqlParser\TokensList;
  *
  * This is an ALLOWLIST grammar, not a keyword blocklist: it accepts only the
  * known-safe shape (one well-formed SELECT, or a CTE whose every part is a
- * SELECT) and rejects everything else. It is defense-in-depth layered on the
- * read-only connection, never the sole boundary.
+ * SELECT) and rejects everything else.
+ *
+ * For statement SHAPE this is defense-in-depth layered on the read-only
+ * connection: a write statement is refused by both. For the file and
+ * side-effect primitives below it is NOT. pg_read_file, pg_ls_dir, lo_import
+ * and load_extension are reads as far as the database is concerned, so a
+ * read-only session permits them and the token-stream scan is the only layer
+ * standing there. Treat any change to that scan as a change to the boundary
+ * itself, not as a refinement behind one.
  *
  * SPIKE (phpmyadmin/sql-parser ^5.10, run 2026-05-30 against the three
  * dialects this package supports):
@@ -191,12 +198,31 @@ final class SelectStatementValidator
     }
 
     /**
-     * Only keyword and bare-identifier tokens can name a function or clause we
-     * forbid; string literals and operators carry no executable identifier.
+     * Whether a token can name a function or clause the allowlist forbids.
+     *
+     * Keywords and bare identifiers are the obvious case. Quoted identifiers are
+     * the reason this is not a single comparison: the lexer types a
+     * backtick-quoted identifier as a SYMBOL and a double-quoted one as a
+     * STRING, and Token::extract() has already stripped the quotes from the
+     * value, so a scan keyed only on keywords and bare identifiers never
+     * inspects them. They are not inert text. A double-quoted string is the
+     * standard identifier form in PostgreSQL, and SQLite resolves both forms, so
+     * they reach the same functions the bare spelling does.
+     *
+     * Single-quoted strings stay out. Those are data literals, and excluding
+     * them is what keeps an ordinary `WHERE name = 'copy'` working.
      */
     private function isIdentifierToken(Token $token): bool
     {
-        return $token->type === Token::TYPE_KEYWORD
-            || $token->type === Token::TYPE_NONE;
+        if ($token->type === Token::TYPE_KEYWORD || $token->type === Token::TYPE_NONE) {
+            return true;
+        }
+
+        if ($token->type === Token::TYPE_SYMBOL) {
+            return true;
+        }
+
+        return $token->type === Token::TYPE_STRING
+            && ($token->flags & Token::FLAG_STRING_DOUBLE_QUOTES) !== 0;
     }
 }
