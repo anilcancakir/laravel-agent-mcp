@@ -12,9 +12,20 @@ use PhpMyAdmin\SqlParser\TokensList;
 /**
  * Validates a raw SQL string as a SINGLE read-only SELECT.
  *
- * This is an ALLOWLIST grammar, not a keyword blocklist: it accepts only the
- * known-safe shape (one well-formed SELECT, or a CTE whose every part is a
- * SELECT) and rejects everything else.
+ * Two layers, and they are not the same kind of thing. Read this before trusting
+ * either one.
+ *
+ * STATEMENT SHAPE is an allowlist: it accepts only one well-formed SELECT, or a
+ * CTE whose every part is a SELECT, and rejects everything else. That layer is
+ * complete, because it enumerates what is allowed.
+ *
+ * IDENTIFIER NAMES are a BLOCKLIST, and a knowingly incomplete one. FORBIDDEN_TOKENS
+ * is a list of names, so it stops the primitives it happens to name and nothing
+ * else. Three gaps have already been found in it by looking rather than by
+ * reasoning: the dblink_ family walked past an exact match on 'dblink', the
+ * pg_ls_dir siblings were absent, and query_to_xml executes a string argument the
+ * scan cannot see into. Treat a new name in this list as evidence the list was
+ * incomplete again, never as evidence it is now complete.
  *
  * For statement SHAPE this is defense-in-depth layered on the read-only
  * connection: a write statement is refused by both. For the file and
@@ -41,15 +52,33 @@ use PhpMyAdmin\SqlParser\TokensList;
  *   SelectStatement::$into; both signals are enforced (belt and suspenders).
  * - Any narrowing decision favors rejection: a shape that fails to parse
  *   cleanly is rejected, never loosened.
+ *
+ * KNOWN GAP, left open deliberately. A function that EXECUTES a string argument
+ * is invisible to the name scan, because the payload sits in a single-quoted
+ * literal and skipping those is what keeps `WHERE name = 'copy'` working. The
+ * four xml functions above are named, so those four are closed; the shape is
+ * not. `current_setting` is also accepted on purpose: it reads configuration
+ * rather than the filesystem, the package already exposes that surface through
+ * an opt-in tool, and blocking it would refuse a great deal of ordinary SQL.
+ *
+ * KNOWN FALSE POSITIVES, accepted deliberately. Double-quoted text is scanned as
+ * an identifier, which is what PostgreSQL and SQLite make it. On MySQL without
+ * ANSI_QUOTES it is a string literal instead, so `WHERE kind = "copy"` is refused
+ * here while `WHERE kind = 'copy'` works. The same applies to a quoted column
+ * named after a forbidden primitive. Single quotes are the portable spelling and
+ * the one the tool documents; widening to fix these would reopen the identifier
+ * bypass this scan exists to close.
  */
 final class SelectStatementValidator
 {
     /**
      * Identifiers that reach files or side effects even from a SELECT context.
      *
-     * These are the primitives a read-only SELECT must never contain. The list
-     * is matched against the PARSED token stream, not the raw input, so it is
-     * part of the accepted-shape definition rather than a string blocklist.
+     * A BLOCKLIST of names, and incomplete by construction. Matching it against
+     * the PARSED token stream rather than the raw input makes it harder to evade
+     * by spelling, which is worth having, but it does not turn a list of names
+     * into a definition of what is safe: a primitive nobody has written down
+     * here passes. Adding a name is fixing one instance, not the class.
      *
      * @var array<int, string>
      */
@@ -64,10 +93,23 @@ final class SelectStatementValidator
         'load_extension',
         'pg_read_file',
         'pg_read_binary_file',
+        'pg_file_read',
+        'pg_stat_file',
         'pg_ls_dir',
+        'pg_ls_logdir',
+        'pg_ls_waldir',
+        'pg_ls_tmpdir',
         'lo_import',
         'lo_export',
         'dblink',
+        // These execute a string argument. Naming them closes these four and
+        // NOT the class they belong to: the payload sits in a single-quoted
+        // literal, which the scan skips by design, so any other function with
+        // the same shape is still open. See the class docblock.
+        'query_to_xml',
+        'query_to_xmlschema',
+        'table_to_xml',
+        'cursor_to_xml',
     ];
 
     /**
@@ -80,6 +122,10 @@ final class SelectStatementValidator
      */
     private const FORBIDDEN_PREFIXES = [
         'lo_',
+        // dblink_exec runs arbitrary SQL on a second connection, which leaves
+        // the read-only session altogether. 'dblink' as an exact match let every
+        // member that does the work walk past it.
+        'dblink_',
     ];
 
     /**
@@ -183,6 +229,8 @@ final class SelectStatementValidator
                 continue;
             }
 
+            $this->assertNameSurvivedUnescaping($token);
+
             $value = strtolower((string) $token->value);
 
             if (in_array($value, self::FORBIDDEN_TOKENS, true)) {
@@ -194,6 +242,43 @@ final class SelectStatementValidator
                     throw UnsafeQueryException::notReadOnlySelect();
                 }
             }
+        }
+    }
+
+    /**
+     * Reject a quoted name whose text changed while the parser unescaped it.
+     *
+     * The scan matches the UNESCAPED value, which is only sound while the
+     * parser's unescaping agrees with the database's. PostgreSQL's unicode
+     * identifier form is where they part: the lexer runs stripcslashes over
+     * U&"pg_\0072ead_file" and hands the scan pg_2ead_file, while PostgreSQL
+     * reads \0072 as "r" and resolves pg_read_file. The scan then vouches for
+     * a name the database never sees.
+     *
+     * There is no way to tell from here which unescaping is the right one, so
+     * a quoted token whose raw text is not simply its value between its own
+     * quotes is refused rather than guessed at. A plainly quoted identifier
+     * ("pg_read_file", `lo_get`) is unaffected and still reaches the scan.
+     *
+     * @throws UnsafeQueryException
+     */
+    private function assertNameSurvivedUnescaping(Token $token): void
+    {
+        $raw = $token->token;
+
+        $closing = match ($raw === '' ? '' : $raw[0]) {
+            '"' => '"',
+            '`' => '`',
+            '[' => ']',
+            default => null,
+        };
+
+        if ($closing === null) {
+            return;
+        }
+
+        if ($raw !== $raw[0].((string) $token->value).$closing) {
+            throw UnsafeQueryException::notReadOnlySelect();
         }
     }
 
