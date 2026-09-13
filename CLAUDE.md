@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 25 read-only tools to LLM agents. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <0.8`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
+`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 25 read-only tools to LLM agents. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <0.10`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
 
 ## Commands
 
@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Read-only: there are no write tools and none may be added. Every database read goes through the hardened read-only connection, and `db_raw_select` is validated SELECT-only. Surface a change for the operator instead of writing.
 - Auth is a single server-admin key (`AGENT_MCP_KEY`), fail-closed: not Sanctum, not a user model, not a database table. Do not add per-user auth.
-- The package must stay green on BOTH `laravel/mcp` 0.6 and 0.7. Code that touches the mcp surface (Response, Request, transport, trace handling) works on both; do not widen the `>=0.6 <0.8` constraint without testing the new minor.
+- The package must stay green across the whole `laravel/mcp` `>=0.6 <0.10` range. Code that touches the mcp surface (Response, Request, transport, trace handling) works across it; do not widen the constraint without testing the new minor.
 
 ## Git workflow
 
