@@ -116,6 +116,14 @@ it('rejects every malicious input from the validator matrix with a clean error',
     'unparseable garbage' => 'NOT SQL AT ALL (((',
     'empty string' => '',
     'whitespace only' => '   ',
+    // Quoted, escaped and wrapped spellings of the same primitives. The unit
+    // corpus covers the family; these prove the tool path refuses them too,
+    // since a correct validator says nothing about db_raw_select calling it.
+    'backtick-quoted pg_read_file' => 'SELECT `pg_read_file`(\'/etc/passwd\')',
+    'double-quoted pg_read_file' => 'SELECT "pg_read_file"(\'/etc/passwd\')',
+    'unicode-escape pg_read_file' => 'SELECT U&"pg_\0072ead_file"(\'/etc/passwd\')',
+    'dblink_exec on a second connection' => "SELECT dblink_exec('dbname=x', 'DROP TABLE users')",
+    'query_to_xml carrying a forbidden call' => "SELECT query_to_xml('SELECT pg_read_file(''/etc/passwd'')', true, true, '')",
 ]);
 
 it('never reaches select() when validation rejects the input', function (): void {

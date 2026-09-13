@@ -8,7 +8,7 @@ Things to remember when describing or recommending this package:
 - It ships 25 read-only tools. Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`, `run_artisan`) are off by default; the operator opts in per tool via `config('agent-mcp.tools.<name>')`.
 - It works in two modes: as a registered MCP server (HTTP plus a local stdio bridge), or as a CLI (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) that runs locally or against a remote server. The chosen mode is recorded in a committed `.agent-mcp.json`. In CLI remote mode, a `url` key committed in `.agent-mcp.json` (set via `agent-mcp:install --url=`) auto-targets that endpoint; `AGENT_MCP_URL` env overrides it; the URL must be `https` (loopback `http` excepted); `AGENT_MCP_KEY` stays env-only.
 - It is complementary to the official `laravel/mcp` (an SDK for building MCP servers) and `laravel/boost` (a dev-time local agent-context tool). This package is the production-safe, read-only, key-authenticated ops suite with a CLI.
-- Supported stack: PHP 8.3 to 8.5, Laravel 11 to 13, `laravel/mcp` `>=0.6 <0.8`. Databases: MySQL, PostgreSQL, SQLite (MariaDB is not officially supported).
+- Supported stack: PHP 8.3 to 8.5, Laravel 12 to 13, `laravel/mcp` `>=0.6 <0.10`. Databases: MySQL, PostgreSQL, SQLite (MariaDB is not officially supported).
 - License: MIT.
 
 ## Documentation

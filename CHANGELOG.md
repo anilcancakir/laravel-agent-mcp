@@ -4,6 +4,44 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- `phpmyadmin/sql-parser` requirement moved from `^5.10` to `^6.0`. The SELECT-only validator's token scan now compares against the `PhpMyAdmin\SqlParser\TokenType` enum that 6.0 introduced in place of the `Token::TYPE_*` constants, and rejects a query whose parser produced no token list at all. The accepted and rejected shapes are unchanged: every case in the validator corpus keeps the verdict and the mechanism it had on 5.11.1.
+
+- `laravel/mcp` requirement widened from `>=0.6 <0.8` to `>=0.6 <0.10`. A file-level diff between v0.7.2 and v0.9.5 found `Request`, `Response`, `Tool`, the three attributes, both transports and `Server::handle()` byte-identical, and v0.9.0's only "Upgrading To" items are client-side, which this package never touches. Tool-call exception handling moved into a new `ToolInvoker` in v0.8.1: it catches every `Throwable` before `StripsErrorTraces` sees it, but only produces a generic message because that trait has already forced `app.debug` off, so the trait stays load-bearing. The suite holds across 0.6.7, 0.7.2, 0.8.2 and 0.9.5.
+
+### Added
+
+- `server.json`, the Model Context Protocol registry manifest, with a test that keeps its version in step with the server's own `#[Version]` attribute.
+
+### Fixed
+
+- The server reported itself as `1.0.0` over MCP `initialize` after 1.1.0 shipped, because `#[Version]` was never bumped. A client checking whether it was running a patched build was told the version [GHSA-36q8-qrv7-frf6](https://github.com/anilcancakir/laravel-agent-mcp/security/advisories/GHSA-36q8-qrv7-frf6) lists as affected.
+
+## 1.1.0 - 2026-09-13
+
+### Security
+
+- The SELECT validator accepted a forbidden identifier that was quoted, unicode-escaped, or wrapped in a function that executes its string argument. `SELECT "pg_read_file"('/etc/passwd')` passed, and the read-only connection does not contain a function that only reads. See [GHSA-36q8-qrv7-frf6](https://github.com/anilcancakir/laravel-agent-mcp/security/advisories/GHSA-36q8-qrv7-frf6) for the classes, the preconditions and the workaround. Affected: `>=0.1.0, <=1.0.0`.
+
+  The identifier scan now covers quoted identifiers, refuses a quoted name whose value changes while being unescaped, and the name list gained the `dblink_` family, the `pg_` file and directory siblings, and the xml functions that execute a query string.
+
+  Naming those functions closes those functions and not the class they belong to. The payload sits in a single-quoted literal, which the scan skips by design because that exclusion is what keeps an ordinary `WHERE name = 'copy'` working. The class documentation now says so: this is an allowlist on statement shape with a known-incomplete blocklist of identifier names layered inside it.
+
+### Removed
+
+- Laravel 11 support. `illuminate/contracts` is now `^12.0||^13.0`, `orchestra/testbench` is now `^10.0||^11.0`, and the Laravel 11 rows are gone from the CI matrix.
+
+  Two independent reasons, either of which would be enough on its own.
+
+  Composer cannot install Laravel 11 at all. Every `laravel/framework` 11.x release reachable from any `orchestra/testbench` 9.x, up to and including the current head v11.56.1, is withheld by three open advisories: `PKSA-m5cs-t1y6-qpcs` (`<12.61.1`), `PKSA-3r5d-mb8f-1qw9` (`<12.60.0`) and `PKSA-mdq4-51ck-6kdq` (`>=11.0.0,<12.0.0`). Each was fixed on the 12 and 13 branches and none was backported, which is what end of life looks like in practice. The alternative was to switch off Composer's advisory blocking or add the IDs to an ignore list, and that is the wrong trade for a package built to be safe to point an agent at.
+
+  Maintaining it would mean carrying `orchestra/testbench` `^9.0` forever. Testbench tracks framework majors one to one (v9.17.0 requires `laravel/framework ^11.50.0`, v10.11.0 requires `^12.55.0`, v11.2.0 requires `^13.23.0`), so a Laravel 11 row pins the 9 line alongside the newer ones indefinitely.
+
+  If your application is on Laravel 11, there is no version of this package you can safely run. You cannot install 1.1.0, because Composer refuses to resolve Laravel 11 at all for the reason above. And you should not stay on 1.0.0, because that is one of the versions the security advisory above covers. Set `agent-mcp.tools.db_raw_select` to `false`, which closes the affected surface, and move the application to Laravel 12 or 13.
+
 ## 1.0.0 - 2026-06-01
 
 Initial public release. A secure, read-only Model Context Protocol (MCP) server for Laravel that gives AI coding agents safe live access to a running app.
