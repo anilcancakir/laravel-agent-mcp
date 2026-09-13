@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
   Maintaining it would mean carrying `orchestra/testbench` `^9.0` forever. Testbench tracks framework majors one to one (v9.17.0 requires `laravel/framework ^11.50.0`, v10.11.0 requires `^12.55.0`, v11.2.0 requires `^13.23.0`), so a Laravel 11 row pins the 9 line alongside the newer ones indefinitely.
 
-  If your application is on Laravel 11, stay on v1.0.0 until you upgrade.
+  If your application is on Laravel 11, there is no version of this package you can safely run. You cannot install 1.1.0, because Composer refuses to resolve Laravel 11 at all for the reason above. And you should not stay on 1.0.0, because that is one of the versions the security advisory above covers. Set `agent-mcp.tools.db_raw_select` to `false`, which closes the affected surface, and move the application to Laravel 12 or 13.
 
 ## 1.0.0 - 2026-06-01
 
