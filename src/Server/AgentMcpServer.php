@@ -44,7 +44,7 @@ use Laravel\Mcp\Server\Tool;
  * trace, even with app.debug=true.
  */
 #[Name('agent-mcp')]
-#[Version('1.1.0')]
+#[Version('1.2.0')]
 #[Instructions(<<<'MARKDOWN'
     Read-only access to this Laravel application for an authenticated agent.
 
