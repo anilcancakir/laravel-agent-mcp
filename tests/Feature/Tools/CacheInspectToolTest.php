@@ -175,3 +175,66 @@ it('reports a serialized false as a boolean', function (): void {
         ->assertOk()
         ->assertSee('"value_type": "boolean"');
 });
+
+it('reports a payload with trailing data as a string instead of the partial parse', function (): void {
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_trailing_data',
+        'value' => 'i:5;junk',
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    CacheInspectStubServer::tool(CacheInspectTool::class, [
+        'store' => 'database',
+        'key' => 'trailing_data',
+    ])
+        ->assertOk()
+        ->assertSee('"value_type": "string"');
+});
+
+it('never autoloads an enum class named in a cached payload', function (): void {
+    $autoloaded = [];
+    $recorder = function (string $class) use (&$autoloaded): void {
+        $autoloaded[] = $class;
+    };
+    spl_autoload_register($recorder);
+
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_enum_payload',
+        'value' => 'E:21:"InspectProbeEnum:Case";',
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    try {
+        CacheInspectStubServer::tool(CacheInspectTool::class, [
+            'store' => 'database',
+            'key' => 'enum_payload',
+        ])
+            ->assertOk()
+            ->assertSee('"value_type": "string"');
+    } finally {
+        spl_autoload_unregister($recorder);
+    }
+
+    expect($autoloaded)->not->toContain('InspectProbeEnum');
+});
+
+it('restores the application error handler after inspecting a value', function (): void {
+    CacheInspectStubServer::tool(CacheInspectTool::class, [
+        'store' => 'database',
+        'key' => 'plain_scalar_missing',
+    ])->assertOk();
+
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_plain_again',
+        'value' => 'still-not-serialized',
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    CacheInspectStubServer::tool(CacheInspectTool::class, [
+        'store' => 'database',
+        'key' => 'plain_again',
+    ])->assertOk();
+
+    // A real E_WARNING, the level the tool mutes: it must reach Laravel's handler again.
+    expect(fn () => unserialize('probe-after-inspect'))->toThrow(ErrorException::class);
+});

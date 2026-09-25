@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-- `cache_inspect` no longer relies on a `catch (Throwable)` around `unserialize()` to survive a cache value that is not a serialized payload. The warning `unserialize()` raises on such a value is muted for that one call, and the existing return-value check reports it as a string. PHPStan 2.2.16 flags the old catch as dead because it cannot see Laravel's error handler turning the warning into an exception; behaviour is unchanged, and two tests now pin the plain-string and serialized-`false` cases.
+- `cache_inspect` no longer relies on a `catch (Throwable)` around `unserialize()`, which PHPStan 2.2.16 flags as dead because it cannot see Laravel's error handler turning the parse warning into an exception. The warning is now recorded for that one call, and any payload that fails or only partly parses (for example `i:5;junk`) is reported as the string it is, as before; deprecations still reach the application's handler.
+- `cache_inspect` no longer parses a cached payload that names an enum. `unserialize()` autoloads enum classes even with `allowed_classes` off, so inspecting such a key ran application code, and a class that failed to load broke the tool call. Those values are now reported as strings.
 
 ## 1.2.0 - 2026-09-14
 

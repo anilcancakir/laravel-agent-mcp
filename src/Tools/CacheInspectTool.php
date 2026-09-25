@@ -268,21 +268,35 @@ class CacheInspectTool extends AbstractAgentTool
     }
 
     /**
-     * Best-effort unserialize used ONLY to derive a value type. A value that does
-     * not unserialize (e.g. a plain scalar Redis string) is returned as-is so the
-     * type reflects what is actually stored. Object instantiation is disabled so
-     * inspecting a key never triggers a wakeup side effect.
+     * Best-effort unserialize used ONLY to derive a value type. Anything that is not
+     * a clean serialized payload comes back as-is, so the type reflects what is
+     * stored: a plain string, a payload with trailing data, or one that parses only
+     * with a warning. Objects come back as __PHP_Incomplete_Class. Payloads that name
+     * an enum are not parsed at all: unserialize() autoloads enum classes even with
+     * allowed_classes off, and inspecting a key must never run application code.
      */
     private function safeUnserialize(mixed $value): mixed
     {
-        if (! is_string($value)) {
+        if (! is_string($value) || $this->namesEnum($value)) {
             return $value;
         }
 
-        // unserialize() raises E_WARNING on a payload it cannot parse, which Laravel's
-        // error handler turns into an exception. The return value below already tells a
-        // failed parse apart, so the warning is muted for this one call and nothing else.
-        set_error_handler(static fn (): bool => true);
+        // 1. A bad payload raises E_WARNING (E_NOTICE on older PHP), which Laravel's
+        //    handler would throw; record it instead. Every other level, deprecations
+        //    included, still reaches the application's handler.
+        $failed = false;
+        $previous = null;
+        $previous = set_error_handler(
+            static function (int $level, string $message, string $file, int $line) use (&$failed, &$previous): bool {
+                if ($level === E_WARNING || $level === E_NOTICE) {
+                    $failed = true;
+
+                    return true;
+                }
+
+                return $previous !== null && $previous($level, $message, $file, $line) !== false;
+            },
+        );
 
         try {
             $result = unserialize($value, ['allowed_classes' => false]);
@@ -290,13 +304,23 @@ class CacheInspectTool extends AbstractAgentTool
             restore_error_handler();
         }
 
-        // unserialize returns false on failure; distinguish a genuine serialized
-        // false ('b:0;') from a failed parse so the type stays accurate.
-        if ($result === false && $value !== 'b:0;') {
+        // 2. A warning means a failed or partial parse, and false without the literal
+        //    'b:0;' means a failed one; either way report the value as stored.
+        if ($failed || ($result === false && $value !== 'b:0;')) {
             return $value;
         }
 
         return $result;
+    }
+
+    /**
+     * Whether a serialized payload contains an enum token (E:<length>:"Class:Case").
+     * A string value that merely looks like one is reported as a string, which is the
+     * safe side of the trade.
+     */
+    private function namesEnum(string $value): bool
+    {
+        return preg_match('/(?:^|[;{}])E:\d+:"/', $value) === 1;
     }
 
     /**
