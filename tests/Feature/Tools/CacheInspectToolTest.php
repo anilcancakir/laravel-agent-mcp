@@ -238,3 +238,31 @@ it('restores the application error handler after inspecting a value', function (
     // A real E_WARNING, the level the tool mutes: it must reach Laravel's handler again.
     expect(fn () => unserialize('probe-after-inspect'))->toThrow(ErrorException::class);
 });
+
+it('forwards deprecations raised while parsing to the application error handler', function (): void {
+    $seenLevels = [];
+    $previous = set_error_handler(
+        function (int $level, string $message, string $file, int $line) use (&$seenLevels, &$previous): bool {
+            $seenLevels[] = $level;
+
+            return $previous !== null && $previous($level, $message, $file, $line) !== false;
+        },
+    );
+
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_deprecated_format',
+        'value' => 'S:3:"abc";',
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    try {
+        CacheInspectStubServer::tool(CacheInspectTool::class, [
+            'store' => 'database',
+            'key' => 'deprecated_format',
+        ])->assertOk();
+    } finally {
+        restore_error_handler();
+    }
+
+    expect($seenLevels)->toContain(E_DEPRECATED);
+});
