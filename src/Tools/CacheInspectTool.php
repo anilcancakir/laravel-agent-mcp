@@ -8,7 +8,6 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
-use Throwable;
 
 /**
  * MCP tool: cache_inspect
@@ -280,10 +279,15 @@ class CacheInspectTool extends AbstractAgentTool
             return $value;
         }
 
+        // unserialize() raises E_WARNING on a payload it cannot parse, which Laravel's
+        // error handler turns into an exception. The return value below already tells a
+        // failed parse apart, so the warning is muted for this one call and nothing else.
+        set_error_handler(static fn (): bool => true);
+
         try {
             $result = unserialize($value, ['allowed_classes' => false]);
-        } catch (Throwable) {
-            return $value;
+        } finally {
+            restore_error_handler();
         }
 
         // unserialize returns false on failure; distinguish a genuine serialized

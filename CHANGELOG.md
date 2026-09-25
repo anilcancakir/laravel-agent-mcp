@@ -4,6 +4,12 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- `cache_inspect` no longer relies on a `catch (Throwable)` around `unserialize()` to survive a cache value that is not a serialized payload. The warning `unserialize()` raises on such a value is muted for that one call, and the existing return-value check reports it as a string. PHPStan 2.2.16 flags the old catch as dead because it cannot see Laravel's error handler turning the warning into an exception; behaviour is unchanged, and two tests now pin the plain-string and serialized-`false` cases.
+
 ## 1.2.0 - 2026-09-14
 
 ### Changed

@@ -143,3 +143,35 @@ it('returns the raw value when allow_value_read is true and the key is not block
 
     $response->assertSee(INSPECT_SECRET_VALUE);
 });
+
+// --- value_type for payloads that are not serialized ---
+
+it('reports a plain unserialized string as a string instead of failing', function (): void {
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_plain_scalar',
+        'value' => 'not-a-serialized-payload',
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    CacheInspectStubServer::tool(CacheInspectTool::class, [
+        'store' => 'database',
+        'key' => 'plain_scalar',
+    ])
+        ->assertOk()
+        ->assertSee('"value_type": "string"');
+});
+
+it('reports a serialized false as a boolean', function (): void {
+    DB::table('cache')->insert([
+        'key' => 'inspect_cache_stored_false',
+        'value' => serialize(false),
+        'expiration' => now()->addHour()->getTimestamp(),
+    ]);
+
+    CacheInspectStubServer::tool(CacheInspectTool::class, [
+        'store' => 'database',
+        'key' => 'stored_false',
+    ])
+        ->assertOk()
+        ->assertSee('"value_type": "boolean"');
+});
