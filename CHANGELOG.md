@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - `cache_inspect` no longer relies on a `catch (Throwable)` around `unserialize()`, which PHPStan 2.2.16 flags as dead because it cannot see Laravel's error handler turning the parse warning into an exception. The warning is now recorded for that one call, and any payload that fails or only partly parses (for example `i:5;junk`) is reported as the string it is, as before; deprecations still reach the application's handler.
 - `cache_inspect` no longer parses a cached payload that names an enum. `unserialize()` autoloads enum classes even with `allowed_classes` off, so inspecting such a key ran whatever the autoloader includes. Those values are now reported as strings.
+- README tool count and write-safety wording. The package ships 25 tools: 24 that only read, and `run_artisan`, which runs nothing until an operator allowlists a command. The README had called all 25 read-only and said write tools do not exist; it now says no tool writes to the database and describes how `run_artisan` is gated.
 
 ## 1.2.0 - 2026-09-14
 
