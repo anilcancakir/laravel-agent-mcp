@@ -29,7 +29,7 @@ Your AI coding agent writes migrations, queries, and config lookups against a sc
 
 laravel-agent-mcp closes that gap. It exposes a read-only endpoint on your running Laravel app so the agent reads the real schema, the real routes, the real env-key names, and the current queue state. The agent stops guessing and starts working from live truth.
 
-The reason it is safe to point an agent at: there are no write tools. Not "writes are disabled by default," they do not exist. The agent cannot call something that is not there. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
+The reason it is safe to point an agent at: 24 of its 25 tools only read, and no tool writes to your database. The 25th, `run_artisan`, runs nothing until you allowlist a command: it ships with an empty allowlist, matches commands exactly with no wildcards, and denies any option you have not allowed. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
 
 ## Quick start
 
@@ -158,7 +158,7 @@ php artisan boost:install
 php artisan boost:update --discover
 ```
 
-## What your agent can see: 25 read-only tools
+## What your agent can see: 24 read-only tools and one gated runner
 
 Every tool is individually gated by `config('agent-mcp.tools.<name>')`. Sensitive tools are off by default; the operator opts in. Enable only what your agent use case needs.
 
@@ -389,7 +389,7 @@ laravel-agent-mcp is complementary to the official Laravel AI packages, not a re
 
 ### Not for you if
 
-- You need the agent to write to the database. This package has no write tools by design.
+- You need the agent to write to the database. No tool here writes to it, by design.
 - You are building a custom MCP server with your own domain tools. Use `laravel/mcp` directly.
 - You only need local dev-time context and already run `laravel/boost`. Boost may be enough on its own.
 
@@ -401,11 +401,11 @@ Install the package, run `php artisan agent-mcp:install`, set `AGENT_MCP_KEY` in
 
 ### Is this safe to use against a production database?
 
-Yes, with the documented setup: set `APP_DEBUG=false`, use a dedicated readonly DB user, and keep sensitive tools off. There are no write tools, database reads run on a read-only-hardened connection, and `db_raw_select` is validated SELECT-only. Treat redaction as a bonus, not the boundary.
+Yes, with the documented setup: set `APP_DEBUG=false`, use a dedicated readonly DB user, and keep sensitive tools off. No tool writes to the database, database reads run on a read-only-hardened connection, `db_raw_select` is validated SELECT-only, and `run_artisan` stays off until you allowlist a command. Treat redaction as a bonus, not the boundary.
 
 ### Can the agent write to or delete from my database?
 
-No. The package defines no write tools, so there is nothing to call. The read-only connection and SELECT-only validator are additional independent layers, and a readonly DB grant is the recommended final control.
+No. No tool writes to the database, so there is nothing to call. `run_artisan` runs only the commands you put on its allowlist, so keep migration and data commands off it. The read-only connection and SELECT-only validator are additional independent layers, and a readonly DB grant is the recommended final control.
 
 ### Do I need Laravel Sanctum or a user table?
 
