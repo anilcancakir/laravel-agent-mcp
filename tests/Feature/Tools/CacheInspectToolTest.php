@@ -265,4 +265,4 @@ it('forwards deprecations raised while parsing to the application error handler'
     }
 
     expect($seenLevels)->toContain(E_DEPRECATED);
-});
+})->skip(PHP_VERSION_ID < 80400, "PHP 8.4 introduced the deprecation for unserialize()'s 'S' format.");
