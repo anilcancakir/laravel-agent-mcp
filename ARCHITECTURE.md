@@ -21,8 +21,7 @@ Tool::handle = authorize -> audit -> read-only work -> redact
 - `Http` owns `KeyAuthMiddleware` and the `StripsErrorTraces` trait, which is mixed into the server (not middleware) and flips `app.debug` off for the length of one call.
 - `Logs` resolves and contains the log path; `ReadLogsTool` does the reading.
 - `Auditing` writes tool name, argument shape and resolved section; never values.
-- `Cli` is the shared base for the artisan commands and the remote JSON-RPC client. `Commands` holds the five commands. `StdioBridgeCommand` imports nothing from the package.
-- `Support` mixes install-time file writers (`GuidelineInjector`, `SkillInstaller`, `InstallMode`, `AgentTarget`) with runtime code on the tool path (`OutputRedactor`, `RemoteUrl`, `RetiredToolKeys`). The boost blades call `InstallMode::current()`.
+- `Cli` is the shared base for the artisan commands and the remote JSON-RPC client. `Commands` holds the five commands.- `Support` mixes install-time file writers (`GuidelineInjector`, `SkillInstaller`, `InstallMode`, `AgentTarget`) with runtime code on the tool path (`OutputRedactor`, `RemoteUrl`, `RetiredToolKeys`). The boost blades call `InstallMode::current()`.
 - `AgentMcpServiceProvider` wires transports, the `agent-mcp` rate limiter, the default audit channel and publishing. Its `Mcp::local` call is laravel/mcp's own stdio transport, not `agent-mcp:stdio`.
 
 ## Invariants
@@ -74,7 +73,7 @@ Tool::handle = authorize -> audit -> read-only work -> redact
 
 ## Traps
 
-- `StdioBridgeCommand` never calls `RemoteUrl::valid` and has no enabled check, so a plain `http://` `AGENT_MCP_URL` sends the Bearer key in clear text.
+- `StdioBridgeCommand` has no enabled check (it only relays to the remote app, whose own flags apply); its only package import is `RemoteUrl`.
 - `DbSchemaTool` (and `DbQueryTool`'s table-exists check) call `Schema::connection((string) config('agent-mcp.connection', 'readonly'))`. The shipped config default is null, so the name is `''` and the app's default connection answers, unhardened. Row reads in `DbQueryTool` use `readonly()` and are fine.
 - Tool names come from `#[Name]` on most tools and `protected string $name` on `DbRawSelectTool`, `ReadLogsTool` and `RunArtisanTool`; both must equal the config key.
 - Four sectioned tools (`AppInfoTool`, `DbHealthTool`, `QueueStatusTool`, `DbDiagnosticsTool`) resolve the section before `audit()`; a refused section is audited inside `requestedSection`.
