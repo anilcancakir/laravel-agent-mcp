@@ -167,7 +167,100 @@ final class SelectStatementValidator
             throw UnsafeQueryException::notReadOnlySelect();
         }
 
+        $this->assertDialectsTokeniseAlike($parser->list);
         $this->assertNoForbiddenTokens($parser->list);
+    }
+
+    /**
+     * Reject text the parser and the database could split into different tokens.
+     *
+     * The parser is a MySQL lexer, and both later checks trust its token stream:
+     * the name scan here and the outer-LIMIT lookup in db_raw_select. Wherever
+     * PostgreSQL or SQLite read the same characters differently, a call the scan
+     * filed as comment or string text executes, or a LIMIT the parser saw is a
+     * comment to the database and the row cap is never appended. Each rule below
+     * closes one such disagreement, demonstrated with a statement that parses
+     * cleanly here and hides a call PostgreSQL runs or a LIMIT it ignores:
+     * - a backslash: MySQL escapes with it, standard PostgreSQL and SQLite strings
+     *   do not, so the two disagree on where a quoted token ends;
+     * - '$': PostgreSQL opens a dollar-quoted string, MySQL reads an identifier;
+     * - '--' not followed by whitespace: a comment to PostgreSQL and SQLite,
+     *   operators to MySQL and to this lexer;
+     * - DELIMITER: a client command that redefines where the statement ends, so
+     *   the appended cap cannot be placed safely.
+     * Comments carry their own rules, see isPortableComment().
+     *
+     * @throws UnsafeQueryException
+     */
+    private function assertDialectsTokeniseAlike(TokensList $tokens): void
+    {
+        foreach ($tokens->tokens as $index => $token) {
+            if ($token->type === TokenType::Whitespace) {
+                continue;
+            }
+
+            if ($token->type === TokenType::Comment) {
+                if (! $this->isPortableComment($token)) {
+                    throw UnsafeQueryException::notReadOnlySelect();
+                }
+
+                continue;
+            }
+
+            $text = $token->token;
+
+            if (str_contains($text, '\\')) {
+                throw UnsafeQueryException::notReadOnlySelect();
+            }
+
+            // A quoted string ends where every dialect agrees it ends once no
+            // backslash is involved, so its content is inert text.
+            if ($token->type === TokenType::String) {
+                continue;
+            }
+
+            $next = $tokens->tokens[$index + 1] ?? null;
+            $dashDash = str_contains($text, '--')
+                || (str_ends_with($text, '-') && $next !== null && str_starts_with($next->token, '-'));
+
+            if ($dashDash || str_contains($text, '$') || strtoupper($text) === 'DELIMITER') {
+                throw UnsafeQueryException::notReadOnlySelect();
+            }
+        }
+    }
+
+    /**
+     * Whether every supported dialect reads this comment as the same span.
+     *
+     * - '#' starts a comment in MySQL and is the XOR operator in PostgreSQL.
+     * - '/*!' (MySQL) and '/*M!' (MariaDB) are comments to PostgreSQL and SQLite
+     *   but executed by the server they target.
+     * - A block comment must close itself: an unterminated one swallows whatever
+     *   follows it, the appended cap included. The lexer also closes a comment
+     *   on the star of its own opener (slash, star, slash), which no database
+     *   does, hence the four-character minimum. PostgreSQL nests block comments
+     *   and MySQL does not, so a '/*' inside one moves its end for one of them.
+     * - PostgreSQL ends a '--' comment at a carriage return, this lexer only at a
+     *   newline, so a '\r' before the end hides what follows from the scan. A
+     *   trailing '\r' is the CRLF line ending, where both agree.
+     */
+    private function isPortableComment(Token $token): bool
+    {
+        $text = $token->token;
+
+        if (($token->flags & Token::FLAG_COMMENT_SQL) !== 0) {
+            return ! str_contains(substr($text, 0, -1), "\r");
+        }
+
+        if (($token->flags & Token::FLAG_COMMENT_C) === 0 || ($token->flags & Token::FLAG_COMMENT_MYSQL_CMD) !== 0) {
+            return false;
+        }
+
+        return strlen($text) >= 4
+            && str_starts_with($text, '/*')
+            && str_ends_with($text, '*/')
+            && ! str_starts_with($text, '/*M!')
+            && ! str_contains(substr($text, 2, -2), '/*');
     }
 
     /**

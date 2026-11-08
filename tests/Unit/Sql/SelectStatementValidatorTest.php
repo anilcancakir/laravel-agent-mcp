@@ -25,6 +25,13 @@ it('accepts a single well-formed read-only SELECT', function (string $sql): void
     // and narrowing what the scan accepts would break these instead.
     'double-quoted ordinary identifiers' => 'SELECT "name" FROM "users" LIMIT 1',
     'backtick-quoted ordinary identifiers' => 'SELECT `name` FROM `users` LIMIT 1',
+    // Comment and literal shapes every supported dialect tokenises the same way.
+    // They guard the token-agreement rules against growing into ordinary SQL.
+    'terminated block comment' => 'SELECT id FROM users /* note */ LIMIT 1',
+    'line comment' => "SELECT id FROM users -- note\nLIMIT 1",
+    'line comment ended by a crlf' => "SELECT id FROM users -- note\r\nLIMIT 1",
+    'dollar sign inside a literal' => "SELECT id FROM users WHERE price = '\$5' LIMIT 1",
+    'subtraction' => 'SELECT id - 1 FROM users LIMIT 1',
 ]);
 
 it('rejects an unsafe query', function (string $sql): void {
@@ -131,6 +138,26 @@ it('rejects an unsafe query', function (string $sql): void {
     // name still lands as a scanned identifier token, so this is rejected by
     // the same forbidden-token scan as the bare form, not by accident of parsing.
     'schema-qualified pg_read_file' => "SELECT pg_catalog.pg_read_file('/etc/passwd')",
+    // The parser is a MySQL lexer. Where PostgreSQL or SQLite tokenise the same
+    // text differently, the scan reads one statement and the database runs
+    // another: a hidden call executes, or a LIMIT the parser sees never reaches
+    // the database and the row cap is not appended.
+    'mysql conditional comment carrying a limit' => 'SELECT * FROM big /*! LIMIT 5 */',
+    'versioned mysql conditional comment' => 'SELECT * FROM big /*!50000 LIMIT 5 */',
+    'mariadb executable comment' => 'SELECT 1 /*M! , LOAD_FILE(0x2f) */',
+    'double dash without whitespace' => 'SELECT * FROM big WHERE 1=1 --x LIMIT 5',
+    'double dash glued to a number' => 'SELECT * FROM big WHERE id = 1--1 LIMIT 5',
+    'unterminated block comment' => 'SELECT * FROM big /* c',
+    'block comment closed by its own opening star' => 'SELECT * FROM big /*/ LIMIT 5 */',
+    'nested block comment' => 'SELECT * FROM big /* /* */ LIMIT 5 */',
+    'hash comment hiding a call postgres runs as xor' => "SELECT 1 # 1, pg_read_file('/etc/passwd')",
+    'carriage return ending a line comment in postgres' => "SELECT 1 -- x\r, pg_ls_dir(chr(46)) AS y",
+    'backslash-escaped quote hiding a call' => "SELECT 'a\\' || pg_read_file('/etc/passwd') || '' AS x",
+    'postgres escape string' => "SELECT E'a\\'b'",
+    'backslash in a quoted user variable' => "SELECT @'a\\'",
+    'dollar-quoted string hiding a call' => "SELECT \$\$'\$\$, pg_ls_dir(chr(46)) -- '",
+    'tagged dollar quote hiding a call' => "SELECT \$a\$'\$a\$, pg_ls_dir(chr(46)) -- '",
+    'delimiter command' => "DELIMITER //\nSELECT 1 //",
 ]);
 
 it('does not leak the offending sql in the exception message', function (): void {
