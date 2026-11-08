@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Http;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 
+use function Pest\Laravel\withHeaders;
+
 // agent-mcp:stdio bridges a local stdio MCP client to a REMOTE HTTP MCP endpoint.
 // Connection details come from operator-set ENV (the client's .mcp.json `env`):
 //   AGENT_MCP_URL (required) + AGENT_MCP_KEY (required).
@@ -130,6 +132,102 @@ it('forwards a JSON-RPC line to the remote with the Bearer key and writes the re
             && $request->hasHeader('Content-Type', 'application/json')
             && $request->hasHeader('MCP-Protocol-Version')
             && $request->body() === '{"jsonrpc":"2.0","id":1,"method":"ping"}';
+    });
+});
+
+it('mirrors the method and tool name into headers so laravel/mcp 1.x accepts the forwarded call', function (): void {
+    Http::fake([
+        'remote.test/*' => Http::response('{"jsonrpc":"2.0","id":7,"result":{}}', 200),
+    ]);
+
+    runBridge(['{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"db_schema","arguments":{}}}']);
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->hasHeader('Mcp-Method', 'tools/call')
+            && $request->hasHeader('Mcp-Name', 'db_schema')
+            && $request->hasHeader('MCP-Protocol-Version', '2025-06-18');
+    });
+});
+
+it('forwards the protocol version a client negotiates in _meta instead of the bridge default', function (): void {
+    Http::fake([
+        'remote.test/*' => Http::response('{"jsonrpc":"2.0","id":8,"result":{}}', 200),
+    ]);
+
+    $line = json_encode([
+        'jsonrpc' => '2.0',
+        'id' => 8,
+        'method' => 'tools/list',
+        'params' => ['_meta' => ['io.modelcontextprotocol/protocolVersion' => '2026-07-28']],
+    ]);
+
+    runBridge([$line]);
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->hasHeader('MCP-Protocol-Version', '2026-07-28')
+            && $request->hasHeader('Mcp-Method', 'tools/list')
+            && ! $request->hasHeader('Mcp-Name');
+    });
+});
+
+it('sends headers the real MCP route accepts for a non-legacy tools/call', function (): void {
+    config()->set('agent-mcp.key', 'super-secret-key-value');
+
+    $forwarded = null;
+
+    Http::fake(function (Request $request) use (&$forwarded) {
+        $forwarded = $request;
+
+        return Http::response('{"jsonrpc":"2.0","id":11,"result":{}}', 200);
+    });
+
+    $line = json_encode([
+        'jsonrpc' => '2.0',
+        'id' => 11,
+        'method' => 'tools/call',
+        'params' => [
+            'name' => 'env_keys',
+            '_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+                'io.modelcontextprotocol/clientCapabilities' => new stdClass,
+            ],
+        ],
+    ]);
+
+    runBridge([$line]);
+
+    assert($forwarded instanceof Request);
+
+    // Replay exactly what the bridge sent against the package's own route: on laravel/mcp 1.x
+    // a header that disagrees with the body is a 400 with error -32020 before any tool runs.
+    $headers = array_map(static fn (array $values): string => $values[0], $forwarded->headers());
+
+    withHeaders($headers)
+        ->postJson('/agent-mcp', json_decode($forwarded->body(), true))
+        ->assertOk()
+        ->assertJsonMissingPath('error');
+});
+
+it('drops a mirrored header whose value is not header safe instead of copying it from stdin', function (): void {
+    Http::fake([
+        'remote.test/*' => Http::response('{"jsonrpc":"2.0","id":9,"result":{}}', 200),
+    ]);
+
+    $line = json_encode([
+        'jsonrpc' => '2.0',
+        'id' => 9,
+        'method' => 'tools/call',
+        'params' => ['name' => "db_schema\r\nX-Injected: 1", 'arguments' => []],
+    ]);
+
+    $result = runBridge([$line]);
+
+    expect($result['status'])->toBe(0);
+
+    Http::assertSent(function (Request $request): bool {
+        return $request->hasHeader('Mcp-Method', 'tools/call')
+            && ! $request->hasHeader('Mcp-Name')
+            && ! $request->hasHeader('X-Injected');
     });
 });
 

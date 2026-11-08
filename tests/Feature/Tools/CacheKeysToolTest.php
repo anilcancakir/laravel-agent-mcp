@@ -93,6 +93,19 @@ it('lists database keys with the cache prefix stripped', function (): void {
     $response->assertDontSee('keys_cache_dashboard_stats');
 });
 
+// --- redis client support ---
+
+it('reports key enumeration as unavailable for a redis store on a non-phpredis client', function (): void {
+    config()->set('database.redis', ['client' => 'predis']);
+    config()->set('cache.stores.redis', ['driver' => 'redis', 'connection' => 'cache']);
+
+    $response = CacheKeysStubServer::tool(CacheKeysTool::class, ['store' => 'redis'])
+        ->assertOk();
+
+    $response->assertSee('"available": false');
+    $response->assertDontSee('LIVESESSIONID12345');
+});
+
 // --- session prefix excluded ---
 
 it('excludes keys carrying the session cookie prefix so live session IDs do not leak', function (): void {

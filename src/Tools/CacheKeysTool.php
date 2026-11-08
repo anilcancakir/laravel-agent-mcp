@@ -3,7 +3,6 @@
 namespace Anilcancakir\LaravelAgentMcp\Tools;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
-use Illuminate\Redis\Connections\PhpRedisConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Mcp\Request;
@@ -183,23 +182,22 @@ class CacheKeysTool extends AbstractAgentTool
             ];
         }
 
-        $connectionName = $storeConfig['connection'] ?? 'cache';
-        $redis = app('redis')->connection($connectionName);
-        $prefix = (string) config('cache.prefix');
-
-        // The package supports the phpredis client's concrete SCAN wrapper. The
-        // Predis client wraps SCAN behind a magic __call whose return shape PHPStan
-        // resolves against the raw \Redis mixin, not Laravel's tuple-returning
-        // wrapper; rather than reach for a suppression, the Predis path degrades to
-        // a documented {available:false} (the operator can use a phpredis client to
-        // enumerate keys). This keeps the dominant production client fully supported.
-        if (! $redis instanceof PhpRedisConnection) {
+        // Predis is the one built-in client without a portable SCAN: it wraps SCAN behind a
+        // magic __call. The configured client is read before connecting, so a missing Predis
+        // package never fatals on the way to the documented {available:false}; the operator
+        // can use phpredis to enumerate keys. Clients built on phpredis (a sentinel package,
+        // for one) keep working because they are not named here.
+        if (config('database.redis.client', 'phpredis') === 'predis') {
             return [
                 'store' => 'redis',
                 'available' => false,
                 'reason' => 'key enumeration is supported on the phpredis client only; the configured client does not expose a SCAN with a portable return shape',
             ];
         }
+
+        $connectionName = $storeConfig['connection'] ?? 'cache';
+        $redis = app('redis')->connection($connectionName);
+        $prefix = (string) config('cache.prefix');
 
         $keys = [];
         $excluded = 0;
