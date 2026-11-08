@@ -11,6 +11,7 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool `read_logs`: tails the application's active log file.
@@ -22,13 +23,14 @@ use Laravel\Mcp\Server\Attributes\Description;
  * it leaves handle().
  */
 #[Description(<<<'TEXT'
-    Read the most recent lines from the application log channel. Call this IMMEDIATELY on any 500, exception, failed job, or unexpected behavior, before attempting a fix; the log is usually the fastest path to the root cause.
+    Read the most recent lines from the application log channel. Call this on any 500, exception, failed job, or unexpected behavior before attempting a fix; the log is usually the fastest path to the root cause.
 
     Usage:
     - Use it proactively when a user reports something is wrong, even without an explicit error; warnings and deprecations often explain subtle breakage.
-    - `lines` controls how many trailing lines to return (clamped to the configured maximum). `level` narrows to error, warning, info, or debug.
+    - `lines` controls how many trailing lines to return (clamped to the configured maximum, with a truncated note when older lines were cut). `level` narrows to error, warning, info, or debug.
     - Output is redacted as a best-effort secret filter.
     TEXT)]
+#[IsReadOnly]
 final class ReadLogsTool extends AbstractAgentTool
 {
     /**
@@ -93,15 +95,19 @@ final class ReadLogsTool extends AbstractAgentTool
         $limit = $this->resolvedLineCount($request);
         $level = $this->resolvedLevel($request);
 
-        // 4. Tail the file, then apply the optional level filter.
-        $lines = $this->tail($path, $limit, $level);
+        // 4. Tail the file one line beyond the cap, so an extra match tells a cut tail from one that fitted.
+        $lines = $this->tail($path, $limit + 1, $level);
 
         if ($lines === []) {
             return Response::text('No matching log lines.');
         }
 
-        // 5. Redact before the lines leave the tool.
-        return Response::text($this->redactor()->redact(implode("\n", $lines)));
+        $truncated = count($lines) > $limit;
+
+        // 5. Redact before the lines leave the tool; the note is added after, it holds no log content.
+        $text = $this->redactor()->redact(implode("\n", array_slice($lines, -$limit)));
+
+        return Response::text($truncated ? "(truncated: showing the last {$limit} lines)\n{$text}" : $text);
     }
 
     /**

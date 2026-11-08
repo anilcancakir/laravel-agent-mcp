@@ -191,6 +191,64 @@ it('uses max_rows as the default limit when none is provided', function (): void
         ->assertDontSee('Carol');
 });
 
+it('treats a negative limit as one row instead of bypassing the cap', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'query_type' => 'where',
+        'order_by' => 'id',
+        'limit' => -1,
+    ])
+        ->assertOk()
+        ->assertSee(['Alice', '"truncated":true'])
+        ->assertDontSee('Bob');
+});
+
+it('marks the result truncated when rows exceed the cap', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+    config()->set('agent-mcp.query.max_rows', 2);
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'query_type' => 'where',
+        'order_by' => 'id',
+    ])
+        ->assertOk()
+        ->assertSee(['"rows":', 'Alice', 'Bob', '"truncated":true'])
+        ->assertDontSee('Carol');
+});
+
+it('omits the truncated marker when the rows fit the cap exactly', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'query_type' => 'where',
+    ])
+        ->assertOk()
+        ->assertSee(['"rows":', 'Carol'])
+        ->assertDontSee('truncated');
+});
+
+it('defaults query_type to where when it is omitted', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'conditions' => [
+            ['column' => 'name', 'operator' => '=', 'value' => 'Bob'],
+        ],
+    ])
+        ->assertOk()
+        ->assertSee(['"rows":', 'Bob'])
+        ->assertDontSee('Alice');
+});
+
 // ---------------------------------------------------------------------------
 // Injection safety: bound parameters
 // ---------------------------------------------------------------------------

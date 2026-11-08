@@ -9,6 +9,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool `db_query`: structured, bound, read-only queries over the hardened
@@ -31,10 +32,11 @@ use Laravel\Mcp\Server\Attributes\Name;
 
     Usage:
     - Confirm the table and columns with db_schema first; unknown tables, columns, or operators are rejected before any query runs.
-    - `query_type` selects the shape: find returns one row by id, where returns a filtered list, count returns an integer.
+    - `query_type` selects the shape: find returns one row by id, where (the default) returns a filtered list, count returns an integer.
     - Condition values are always bound as parameters, never concatenated into SQL.
-    - Results are capped at agent-mcp.query.max_rows and redacted. This is read-only; no write ever succeeds.
+    - A where list is capped at agent-mcp.query.max_rows and carries truncated true when rows were cut; output is redacted.
     TEXT)]
+#[IsReadOnly]
 class DbQueryTool extends AbstractAgentTool
 {
     /**
@@ -55,8 +57,7 @@ class DbQueryTool extends AbstractAgentTool
 
             'query_type' => $schema->string()
                 ->enum(['find', 'where', 'count'])
-                ->required()
-                ->description('find returns one row by id; where returns a filtered list; count returns an integer.'),
+                ->description('find returns one row by id; where (default) returns a filtered list; count returns an integer.'),
 
             'id' => $schema->integer()
                 ->nullable()
@@ -139,10 +140,10 @@ class DbQueryTool extends AbstractAgentTool
             }
         }
 
-        // 6. Clamp limit to max_rows.
+        // 6. Clamp limit to [1, max_rows]; the builder ignores a negative limit, which would lift the cap.
         $maxRows = (int) config('agent-mcp.query.max_rows', 100);
         $requestedLimit = $request->get('limit');
-        $limit = is_numeric($requestedLimit) ? min((int) $requestedLimit, $maxRows) : $maxRows;
+        $limit = max(1, min(is_numeric($requestedLimit) ? (int) $requestedLimit : $maxRows, $maxRows));
 
         $orderDir = $request->get('order_dir');
         $orderDir = in_array($orderDir, ['asc', 'desc'], true) ? $orderDir : 'asc';
@@ -214,16 +215,25 @@ class DbQueryTool extends AbstractAgentTool
         }
 
         $query = $this->applyConditions($query, $conditions);
-        $query = $query->limit($limit);
+
+        // One row beyond the cap tells a cut result from one that fitted exactly.
+        $query = $query->limit($limit + 1);
 
         if ($orderBy !== null) {
             $query = $query->orderBy($orderBy, $orderDir);
         }
 
         $rows = $query->get()->map(fn (mixed $row): array => (array) $row)->all();
-        $redacted = $this->redactor()->redactArray($rows);
 
-        return Response::text(json_encode(['rows' => $redacted], JSON_UNESCAPED_UNICODE) ?: '{}');
+        $payload = [
+            'rows' => array_slice($rows, 0, $limit),
+        ];
+
+        if (count($rows) > $limit) {
+            $payload['truncated'] = true;
+        }
+
+        return $this->jsonResponse($payload);
     }
 
     // -------------------------------------------------------------------------
