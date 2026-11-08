@@ -161,6 +161,83 @@ it('keeps the explicit LIMIT of a CTE instead of appending a second one', functi
         ->and(substr_count(strtoupper($executed[0]), 'LIMIT'))->toBe(1);
 });
 
+/**
+ * Record every statement the tool sends to the readonly connection, before it runs,
+ * so a statement the fixture database refuses is still captured. The resolver's own
+ * hardening PRAGMA is left out.
+ *
+ * @param  array<int, string>  $statements
+ */
+function captureRawSelectSql(array &$statements): void
+{
+    DB::connection('readonly')->beforeExecuting(function (string $sql) use (&$statements): void {
+        if (! str_starts_with(strtoupper($sql), 'PRAGMA')) {
+            $statements[] = $sql;
+        }
+    });
+}
+
+it('appends the cap when the only LIMIT belongs to a parenthesised union branch', function (): void {
+    seedReadonlyUsers();
+
+    // SQLite refuses a parenthesised branch while PostgreSQL and MySQL run it, so the
+    // statement is only logged, never executed: what was sent is what bounds those two,
+    // and the outcome no longer depends on how a laravel/mcp version reports a failure.
+    $queries = DB::connection('readonly')->pretend(function (): void {
+        DbRawSelectTestServer::tool(DbRawSelectTool::class, [
+            'sql' => 'SELECT id FROM users UNION ALL (SELECT 1 LIMIT 1)',
+        ]);
+    });
+
+    $sent = array_values(array_filter(
+        array_column($queries, 'query'),
+        static fn (string $sql): bool => ! str_starts_with(strtoupper($sql), 'PRAGMA'),
+    ));
+
+    expect($sent)->toBe([
+        "SELECT id FROM users UNION ALL (SELECT 1 LIMIT 1)\nLIMIT 101",
+    ]);
+});
+
+it('sends a top-level LIMIT within the cap untouched', function (): void {
+    seedReadonlyUsers();
+
+    $statements = [];
+    captureRawSelectSql($statements);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT id FROM users LIMIT 5'])
+        ->assertOk();
+
+    expect($statements)->toBe([
+        'SELECT id FROM users LIMIT 5',
+    ]);
+});
+
+it('caps at 50 rows when no max_rows is configured', function (): void {
+    seedReadonlyUsers();
+
+    config()->set('agent-mcp.query', []);
+
+    $statements = [];
+    captureRawSelectSql($statements);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT id FROM users'])
+        ->assertOk();
+
+    expect($statements)->toBe([
+        "SELECT id FROM users\nLIMIT 51",
+    ]);
+});
+
+it('returns a row holding invalid UTF-8 instead of failing to encode it', function (): void {
+    DB::connection('readonly')->statement('CREATE TABLE blobs (bin BLOB)');
+    DB::connection('readonly')->insert("INSERT INTO blobs (bin) VALUES (x'ff80')");
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT bin FROM blobs'])
+        ->assertOk()
+        ->assertSee(['"rows":', '"bin":"'."\u{FFFD}"]);
+});
+
 it('refuses an explicit LIMIT above the cap or not a plain number, naming the cap', function (string $sql): void {
     seedReadonlyUsers();
 

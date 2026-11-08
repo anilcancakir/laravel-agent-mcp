@@ -111,7 +111,7 @@ class DbRawSelectTool extends AbstractAgentTool
         // 4. Bound the result. An explicit LIMIT stands only when it is a plain number
         //    within the cap; without one the cap plus one row is appended, so a full
         //    extra row is what tells a cut result from one that fitted exactly.
-        $maxRows = (int) config('agent-mcp.query.max_rows', 100);
+        $maxRows = (int) config('agent-mcp.query.max_rows', 50);
         $parser = new Parser($sql);
         $limit = $this->outerLimit($parser);
 
@@ -130,21 +130,20 @@ class DbRawSelectTool extends AbstractAgentTool
         //    passed; the connection's read-only enforcement remains the final guard.
         $rows = $this->readonly()->select($sql);
 
-        // 6. Cut to the cap and best-effort redact secret-shaped values in what is left.
-        $redacted = $this->redactor()->redactArray(array_map(
-            static fn (object $row): array => (array) $row,
-            array_slice($rows, 0, $maxRows),
-        ));
-
+        // 6. Cut to the cap; jsonResponse() redacts what is left and substitutes bytes
+        //    that are not UTF-8, so a binary column cannot fail the encoding.
         $payload = [
-            'rows' => $redacted,
+            'rows' => array_map(
+                static fn (object $row): array => (array) $row,
+                array_slice($rows, 0, $maxRows),
+            ),
         ];
 
         if (count($rows) > $maxRows) {
             $payload['truncated'] = true;
         }
 
-        return Response::json($payload);
+        return $this->jsonResponse($payload);
     }
 
     /**
@@ -153,6 +152,10 @@ class DbRawSelectTool extends AbstractAgentTool
      * For a CTE that is the statement after the WITH terms, not the WithStatement
      * itself, which carries no LIMIT of its own. The validator has already proved
      * that statement is a single SELECT.
+     *
+     * The parser also credits a LIMIT inside a parenthesised UNION branch to the
+     * whole statement, where it bounds that branch only, so its value counts only
+     * when the LIMIT it came from sits outside every bracket.
      */
     private function outerLimit(Parser $parser): ?Limit
     {
@@ -162,7 +165,36 @@ class DbRawSelectTool extends AbstractAgentTool
             $statement = $statement->cteStatementParser?->statements[0] ?? null;
         }
 
-        return $statement instanceof SelectStatement ? $statement->limit : null;
+        if (! $statement instanceof SelectStatement || ! $this->hasTopLevelLimit($parser)) {
+            return null;
+        }
+
+        return $statement->limit;
+    }
+
+    /**
+     * Whether the last LIMIT keyword of the statement sits at bracket depth 0.
+     *
+     * The parser keeps the last LIMIT it meets, so that is the keyword whose depth
+     * decides. A CTE body, a subquery and a parenthesised branch all sit at depth 1
+     * or more, so a LIMIT there bounds only that part of the result.
+     */
+    private function hasTopLevelLimit(Parser $parser): bool
+    {
+        $depth = 0;
+        $topLevel = false;
+
+        foreach ($parser->list->tokens ?? [] as $token) {
+            if ($token->type === TokenType::Operator && $token->token === '(') {
+                $depth++;
+            } elseif ($token->type === TokenType::Operator && $token->token === ')') {
+                $depth--;
+            } elseif ($token->type === TokenType::Keyword && strtoupper($token->token) === 'LIMIT') {
+                $topLevel = $depth === 0;
+            }
+        }
+
+        return $topLevel;
     }
 
     /**
