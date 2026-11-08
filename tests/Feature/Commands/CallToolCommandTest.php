@@ -55,14 +55,14 @@ function runCall(array $args, ?string $stdin = null): array
 }
 
 it('invokes an enabled tool locally and prints its payload with exit 0', function (): void {
-    $result = runCall(['tool' => 'app_about', 'input' => '{}']);
+    $result = runCall(['tool' => 'app_info', 'input' => '{}']);
 
     expect($result['status'])->toBe(0);
     expect($result['stdout'])->toContain('environment');
 });
 
 it('reads JSON arguments from STDIN when the input argument is omitted', function (): void {
-    $result = runCall(['tool' => 'app_about'], '{}');
+    $result = runCall(['tool' => 'app_info'], '{}');
 
     expect($result['status'])->toBe(0);
     expect($result['stdout'])->toContain('environment');
@@ -78,7 +78,7 @@ it('exits non-zero with a denial when the tool is disabled in config', function 
 });
 
 it('exits non-zero on malformed JSON arguments', function (): void {
-    $result = runCall(['tool' => 'app_about', 'input' => '{not valid']);
+    $result = runCall(['tool' => 'app_info', 'input' => '{not valid']);
 
     expect($result['status'])->toBe(1);
     expect($result['stderr'])->toContain('Invalid JSON');

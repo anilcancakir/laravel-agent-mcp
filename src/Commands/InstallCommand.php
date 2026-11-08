@@ -555,8 +555,8 @@ class InstallCommand extends Command
         $this->line('Committing a URL is a credential-routing decision: the Bearer key is sent to');
         $this->line('that host. Review the URL before committing.');
         $this->newLine();
-        $this->line('Sensitive tools (config_inspect, db_slow_queries, db_active_locks, cache_keys,');
-        $this->line('run_artisan) are off by default. When enabled, the CLI refuses to print their');
+        $this->line('Sensitive tools (run_artisan, config_inspect, db_diagnostics, cache_keys)');
+        $this->line('are off by default. When enabled, the CLI refuses to print their');
         $this->line('result to a terminal unless you pass --allow-tty; piping or redirecting is allowed.');
         $this->newLine();
     }

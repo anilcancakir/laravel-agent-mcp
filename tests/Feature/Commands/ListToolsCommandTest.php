@@ -77,7 +77,7 @@ it('lists the remote tool set in remote mode', function (): void {
             'result' => [
                 'tools' => [
                     ['name' => 'db_schema', 'description' => 'Schema'],
-                    ['name' => 'app_about', 'description' => 'About'],
+                    ['name' => 'app_info', 'description' => 'About'],
                 ],
             ],
         ]), 200),
@@ -86,7 +86,7 @@ it('lists the remote tool set in remote mode', function (): void {
     $result = runTools(['--remote' => true]);
 
     expect($result['status'])->toBe(0);
-    expect(array_column(json_decode($result['stdout'], true), 'name'))->toBe(['db_schema', 'app_about']);
+    expect(array_column(json_decode($result['stdout'], true), 'name'))->toBe(['db_schema', 'app_info']);
     expect($result['stdout'])->not->toContain('super-secret-key-value');
 
     putenv('AGENT_MCP_URL');

@@ -186,7 +186,8 @@ it('sends headers the real MCP route accepts for a non-legacy tools/call', funct
         'id' => 11,
         'method' => 'tools/call',
         'params' => [
-            'name' => 'env_keys',
+            'name' => 'app_info',
+            'arguments' => ['section' => 'env_keys'],
             '_meta' => [
                 'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
                 'io.modelcontextprotocol/clientCapabilities' => new stdClass,

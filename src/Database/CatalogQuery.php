@@ -7,14 +7,13 @@ use Illuminate\Database\Connection;
 /**
  * Shared read-only catalog-SQL boundary for the DB-health tools.
  *
- * The DB-health tools (db_index_health, db_missing_fk_indexes, db_table_sizes,
- * db_slow_queries, db_active_locks, migrations_status) all need the same three
+ * The DB-health tools (db_health, db_diagnostics, migrations_status) all need the same three
  * things: the engine name to branch on, a way to run a PACKAGE-authored catalog
  * SELECT on the hardened readonly connection with bindings (never interpolation),
  * and the table list to validate a caller-supplied table argument before it is
  * ever bound. This helper centralizes that boundary so the per-engine dispatch and
  * single-database scoping live in one audited place rather than being re-derived in
- * six tools.
+ * every tool.
  *
  * Security model:
  *   - Every catalog SELECT runs through the SAME hardened readonly connection the

@@ -52,7 +52,7 @@ it('lets the env url win over a committed file url', function (): void {
         ]), 200),
     ]);
 
-    (new RemoteToolClient)->callTool('app_about', []);
+    (new RemoteToolClient)->callTool('app_info', []);
 
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://env-wins.test/agent-mcp');
 });
@@ -69,7 +69,7 @@ it('uses the committed file url when the env url is unset', function (): void {
         ]), 200),
     ]);
 
-    (new RemoteToolClient)->callTool('app_about', []);
+    (new RemoteToolClient)->callTool('app_info', []);
 
     Http::assertSent(function (Request $request): bool {
         return $request->url() === 'https://committed.test/agent-mcp'
@@ -198,7 +198,7 @@ it('strips a leading SSE data prefix before decoding the result', function (): v
         ]), 200),
     ]);
 
-    $result = (new RemoteToolClient)->callTool('app_about', []);
+    $result = (new RemoteToolClient)->callTool('app_info', []);
 
     expect($result['content'][0]['text'])->toBe('ok');
 });
@@ -221,7 +221,7 @@ it('merges paginated tools/list pages by following nextCursor until exhausted', 
             'id' => 1,
             'result' => [
                 'tools' => [
-                    ['name' => 'app_about'],
+                    ['name' => 'app_info'],
                 ],
             ],
         ]), 200);
@@ -229,7 +229,7 @@ it('merges paginated tools/list pages by following nextCursor until exhausted', 
     $tools = (new RemoteToolClient)->listTools();
 
     expect($tools)->toHaveCount(3);
-    expect(array_column($tools, 'name'))->toBe(['db_schema', 'db_query', 'app_about']);
+    expect(array_column($tools, 'name'))->toBe(['db_schema', 'db_query', 'app_info']);
 
     // The second request must carry the cursor returned by the first page.
     Http::assertSentInOrder([
