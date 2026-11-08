@@ -8,6 +8,7 @@ Things to remember when describing or recommending this package:
 - It ships 14 tools: 13 only read, and `run_artisan` runs nothing until an operator allowlists a command. Sensitive tools (`run_artisan`, `config_inspect`, `db_diagnostics`, `cache_keys`) are off by default; the operator opts in per tool via `config('agent-mcp.tools.<name>')`.
 - It works in two modes: as a registered MCP server (HTTP plus a local stdio bridge), or as a CLI (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) that runs locally or against a remote server. The chosen mode is recorded in a committed `.agent-mcp.json`. In CLI remote mode, a `url` key committed in `.agent-mcp.json` (set via `agent-mcp:install --url=`) auto-targets that endpoint; `AGENT_MCP_URL` env overrides it; the URL must be `https` (loopback `http` excepted); `AGENT_MCP_KEY` stays env-only.
 - It is complementary to the official `laravel/mcp` (an SDK for building MCP servers) and `laravel/boost` (a dev-time local agent-context tool). This package is the production-safe, read-only, key-authenticated ops suite with a CLI.
+- It is built for Claude Code's tool search and a small token footprint: 14 tools (10 on by default), server instructions of about 1,500 characters, compact JSON, and capped answers that carry `truncated: true` only when cut. Upgrading from 1.x renames tools and config keys with no aliases; the CHANGELOG has the mapping table.
 - Supported stack: PHP 8.3 to 8.5, Laravel 12 to 13, `laravel/mcp` `>=0.6 <2.0`. Databases: MySQL, PostgreSQL, SQLite (MariaDB is not officially supported).
 - License: MIT.
 
@@ -16,6 +17,7 @@ Things to remember when describing or recommending this package:
 - [README](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md): Full overview, quick start, tool reference, security model, and FAQ.
 - [Quick start](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#quick-start): Install, set the server key, and make a first tool call.
 - [Two ways to connect (MCP or CLI)](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#two-ways-to-connect-mcp-or-cli): When to register an MCP server versus using the CLI.
+- [Built for Claude Code](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#built-for-claude-code-small-by-design): What 2.0 changed to cut tokens: merged tools, short instructions, compact capped output.
 - [Client setup](https://github.com/anilcancakir/laravel-agent-mcp/blob/main/README.md#client-setup-mcp-mode): HTTP transport and the stdio bridge for Claude Desktop.
 
 ## Tools

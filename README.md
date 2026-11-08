@@ -1,12 +1,13 @@
 <!--
 keywords: Laravel MCP server, Model Context Protocol, Claude Code Laravel, Cursor Laravel,
 AI agent database access, read-only MCP, Laravel schema inspection, laravel ai agent tools,
-mcp server php, laravel db mcp, safe database access for ai agents, laravel mcp cli
+mcp server php, laravel db mcp, safe database access for ai agents, laravel mcp cli,
+claude code token cost, mcp tool search
 -->
 
 # laravel-agent-mcp
 
-A secure, read-only Model Context Protocol (MCP) server for Laravel. Give Claude Code, Cursor, and other AI coding agents safe live access to your app's database schema, queries, logs, queue, cache, routes, and config, instead of letting them guess from source files or stale training data.
+**Stop your AI agent from guessing your Laravel app.** A read-only Model Context Protocol (MCP) server that lets Claude Code, Cursor and other coding agents read your real schema, routes, logs, queue and cache, with no way to write to your database and a small token footprint.
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
 [![Tests](https://img.shields.io/github/actions/workflow/status/anilcancakir/laravel-agent-mcp/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/anilcancakir/laravel-agent-mcp/actions/workflows/ci.yml)
@@ -14,7 +15,7 @@ A secure, read-only Model Context Protocol (MCP) server for Laravel. Give Claude
 [![PHP Version](https://img.shields.io/packagist/dependency-v/anilcancakir/laravel-agent-mcp/php?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
 [![License](https://img.shields.io/packagist/l/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](LICENSE)
 
-[Quick start](#quick-start) · [Why](#why-this-exists) · [Tools](#what-your-agent-can-see-14-tools) · [Two modes](#two-ways-to-connect-mcp-or-cli) · [Security](#security-model) · [FAQ](#faq)
+[Quick start](#quick-start) · [Why](#why-this-exists) · [Token cost](#built-for-claude-code-small-by-design) · [Tools](#what-your-agent-can-see-14-tools) · [Two modes](#two-ways-to-connect-mcp-or-cli) · [Security](#security-model) · [FAQ](#faq)
 
 ```mermaid
 flowchart LR
@@ -25,26 +26,32 @@ flowchart LR
 
 ## Why this exists
 
-Your AI coding agent writes migrations, queries, and config lookups against a schema it has never actually seen. It invents column names, assumes relationships that no longer match your tables, and reasons about a queue and cache it cannot observe. The result is plausible, confident, and wrong.
+Your agent writes migrations, queries and config lookups against a schema it has never seen. It invents column names, assumes relationships that no longer match your tables, and reasons about a queue it cannot observe. The result is plausible, confident and wrong.
 
-laravel-agent-mcp closes that gap. It exposes a read-only endpoint on your running Laravel app so the agent reads the real schema, the real routes, the real env-key names, and the current queue state. The agent stops guessing and starts working from live truth.
+laravel-agent-mcp gives it the live answer instead.
 
-The reason it is safe to point an agent at: 13 of its 14 tools only read, and no tool writes to your database. The 14th, `run_artisan`, runs nothing until you allowlist a command: it ships with an empty allowlist, matches commands exactly with no wildcards, and denies any option you have not allowed. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
+| Without it | With it |
+|------------|---------|
+| The agent reads migrations and guesses the current schema. | `db_schema` returns the real columns, indexes and foreign keys. |
+| "Why is the queue stuck?" turns into a list of things to check. | `queue_status` and `read_logs` show the backlog, the failed jobs and the last errors. |
+| You paste route lists and env names into the chat. | `routes` and `app_info` answer on their own (env names only, never values). |
+| Safe database access means writing your own MCP server. | One `composer require`, one key, and the boundary is already built. |
+
+Three things set it apart:
+
+- **Safe enough to explain in a review.** No tool writes to your database. 13 of the 14 tools only read, and the 14th, `run_artisan`, runs nothing until you allowlist a command. Every read goes through a hardened read-only connection and a SELECT-only validator, and every call is audited.
+- **Cheap for the model.** Fourteen tools instead of a sprawl, server instructions of about 1,500 characters, compact JSON, and capped answers. See [Built for Claude Code](#built-for-claude-code-small-by-design).
+- **Fits how you work.** Register it as an MCP server, or skip the registration and call the same tools from the CLI, locally or against a remote app.
 
 ## Quick start
 
 ```bash
 composer require anilcancakir/laravel-agent-mcp
-```
-
-Run the installer to pick a mode and publish the config and agent assets:
-
-```bash
 php artisan agent-mcp:install
 # Sail / Herd: vendor/bin/sail artisan agent-mcp:install
 ```
 
-Set a server key (the endpoint is fail-closed and returns `401` until this is set):
+The installer picks a mode, publishes the config and injects the agent guideline and skill. Then set a server key. The endpoint is fail-closed and returns `401` until you do:
 
 ```bash
 php -r "echo bin2hex(random_bytes(32));"   # generate a strong key
@@ -62,105 +69,40 @@ php artisan agent-mcp:call db_schema '{"table":"users"}'
 echo '{"sql":"select count(*) as c from failed_jobs"}' | php artisan agent-mcp:call db_raw_select
 ```
 
-That is the whole loop: install, set one key, and the agent has safe live context. The next section explains the two ways to wire it into an agent client.
-
-### Agent guideline and skill injection
-
-When laravel-boost is not installed, `agent-mcp:install` injects the mode-tailored guideline directly into each selected agent's instruction file and copies the active-mode skill into each agent's skills directory.
-
-**What gets written**
-
-The guideline is wrapped in a managed marker block and inserted into the instruction file:
-
-```
-<laravel-agent-mcp-guidelines>
-... mode-correct guideline content ...
-</laravel-agent-mcp-guidelines>
-```
-
-The injection is idempotent: re-running replaces the existing block in place, preserving everything outside it. If the file already has an unbalanced or duplicated `<laravel-agent-mcp-guidelines>` marker set, the command aborts with a clear error and leaves the file untouched.
-
-The active-mode skill directory (`agent-mcp-investigation` for MCP mode, `agent-mcp-cli` for CLI mode) is written into each agent's skills path. On a mode switch, the previous mode's managed directory is removed and replaced with the new one. These directories are package-managed: they are overwritten on every re-run, so do not hand-edit them.
-
-**Agent selection**
-
-The installer targets the agents detected in the project by default (falling back to Claude Code when nothing is detected). You can override this:
+That is the whole loop: install, set one key, and the agent has safe live context. For Claude Code over MCP, register the endpoint:
 
 ```bash
-# target specific agents by key
-php artisan agent-mcp:install --agents=claude_code,cursor
-
-# target all supported agents
-php artisan agent-mcp:install --agents=all
+claude mcp add --transport http agent-mcp https://your-app.com/agent-mcp --header "Authorization: Bearer YOUR_KEY_HERE"
 ```
 
-Supported agent keys and their paths:
+Then try prompts like these:
 
-| Key | Guideline file | Skills dir |
-|-----|---------------|------------|
-| `claude_code` | `CLAUDE.md` | `.claude/skills` |
-| `cursor` | `AGENTS.md` | `.cursor/skills` |
-| `copilot` | `AGENTS.md` | `.github/skills` |
-| `junie` | `AGENTS.md` | `.junie/skills` |
-| `gemini` | `GEMINI.md` | `.agents/skills` |
-| `codex` | `AGENTS.md` | `.agents/skills` |
-| `opencode` | `AGENTS.md` | `.agents/skills` |
-| `amp` | `AGENTS.md` | `.agents/skills` |
-| `kiro` | `AGENTS.md` | `.kiro/skills` |
-| `antigravity` | `AGENTS.md` | `.agents/skills` |
+- "Which tables have a foreign key without an index?" (`db_health`)
+- "Why is the `emails` queue backing up?" (`queue_status`, `read_logs`)
+- "Which routes use the `auth:sanctum` middleware?" (`routes`)
+- "What changed in the last migration batch?" (`migrations_status`)
 
-Agents that share a guideline file (`AGENTS.md`) or skill dir (`.agents/skills`) are written exactly once regardless of how many matching keys you select.
+## Built for Claude Code, small by design
 
-In an interactive terminal without `--agents`, the installer presents a multiselect with the detected agents pre-selected.
+Claude Code defers MCP tool definitions behind tool search, so what loads on every request is the tool names and the server instructions. Version 2.0 rebuilt the server around that:
 
-**Injection flags**
+| What | 1.x | 2.0 |
+|------|-----|-----|
+| Tools | 25 | 14 (10 on by default) |
+| Serialised tool definitions | 21,093 bytes | 16,869 bytes (about 20% smaller) |
+| Server instructions | long | about 1,500 characters |
+| Boost skill bodies | about 7.8 KB each | 2 KB and 3 KB |
+| `db_query` and `db_raw_select` rows | 100 | 50 |
+| `read_logs` lines | 200 | 100 |
+| JSON output | pretty-printed | compact |
 
-```bash
-# skip injection entirely (no guideline or skill files are written)
-php artisan agent-mcp:install --no-inject
+Related tools are merged. A tool with several views takes a `section` argument (`queue_status` has `backlog`, `failed` and `horizon`), so the agent loads one definition instead of three. Answers that can grow are capped, and a capped answer carries `truncated: true` only when output was actually cut, so the agent knows when to narrow the question. Every tool except `run_artisan` carries the `readOnlyHint` annotation, which lets clients treat the calls as safe.
 
-# inject even when laravel-boost is installed
-php artisan agent-mcp:install --inject
-```
-
-When laravel-boost is installed, the command defers to boost by default (prints the `boost:install` / `boost:update --discover` next-step). Pass `--inject` to write the assets directly regardless. Pass `--no-inject` to always skip writing agent files.
-
-## Two ways to connect: MCP or CLI
-
-You do not have to register one more MCP server if you do not want to. The package works in two modes, and the installer records your choice in a committed `.agent-mcp.json` so your team, CI, and laravel-boost all resolve the same setup.
-
-```bash
-php artisan agent-mcp:install --mode=mcp   # default
-php artisan agent-mcp:install --mode=cli
-```
-
-**MCP mode (default).** Registers a full MCP server on your app over HTTP (and a local stdio bridge), prints the ready-to-paste `.mcp.json` blocks and the `claude mcp add` one-liner, and activates the `agent-mcp-investigation` boost skill. Use this when you want persistent, low-latency tool access across many turns of an interactive session.
-
-**CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server. Activates the `agent-mcp-cli` boost skill. Use this for one-off calls, scripts, CI pipelines, or when you do not want to expose an HTTP endpoint. To target a remote endpoint, record its URL during install:
-
-```bash
-php artisan agent-mcp:install --mode=cli --url=https://your-app.example.com
-```
-
-The URL is committed in `.agent-mcp.json` (the CLI equivalent of `.mcp.json`) and is read by every `agent-mcp:call` on that repo checkout. `AGENT_MCP_URL` in env overrides the committed value. The URL must be `https` (plain `http` is allowed only for loopback addresses). `AGENT_MCP_KEY` stays in env only and is never committed.
-
-> [!WARNING]
-> Committing a URL is a credential-routing decision: every `agent-mcp:call` will send the `AGENT_MCP_KEY` Bearer token to that host. Review changes to `.agent-mcp.json` `url` as you would review a secret.
-
-> [!NOTE]
-> Commit `.agent-mcp.json`. It records the chosen mode and, for CLI remote setups, the endpoint URL (`{"mode":"cli","version":1,"url":"https://..."}`) for the whole team. When the file is absent, the package defaults to `mcp`, so a missing file is never a breaking state.
-
-After install, wire boost so it injects the active mode's skill and guideline:
-
-```bash
-php artisan boost:install
-# or, if boost is already installed:
-php artisan boost:update --discover
-```
+Caps are config values (`agent-mcp.query.max_rows`, `agent-mcp.logs.max_lines`) with `AGENT_MCP_MAX_ROWS` and `AGENT_MCP_LOG_MAX_LINES` overrides.
 
 ## What your agent can see: 14 tools
 
-Every tool is individually gated by `config('agent-mcp.tools.<name>')`. Sensitive tools are off by default; the operator opts in. Enable only what your agent use case needs.
+Every tool is gated by `config('agent-mcp.tools.<name>')`. Sensitive tools are off by default and the operator opts in. Enable only what your use case needs.
 
 A tool with several views takes a `section` argument and has one flag that opens all of its sections. The first section is the default, and an unknown section is refused with the list of valid names.
 
@@ -168,7 +110,7 @@ A tool with several views takes a `section` argument and has one flag that opens
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `db_schema` | Lists tables, or returns columns, indexes, and foreign keys for one table. | On |
+| `db_schema` | Lists tables, or returns columns, indexes and foreign keys for one table. | On |
 | `db_query` | Structured reads: find by id, where filter, or count, with bound parameters. Lists return `{rows, truncated?}`. | On |
 | `db_raw_select` | Ad-hoc SELECT validated by a SELECT-only grammar parser (the statement after any CTE must be one SELECT), capped, run read-only. Returns `{rows, truncated?}`. | On |
 | `db_health` | Sections: `sizes` (default; row counts and storage sizes, PG adds dead-tuple stats), `indexes` (index inventory, PG adds unused-index detection), `missing_fk` (foreign-key columns without a covering index; PG and MySQL definitive, SQLite heuristic). Takes `limit` tables. | On |
@@ -199,22 +141,48 @@ A tool with several views takes a `section` argument and has one flag that opens
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `routes` | All routes with methods, URI, name, controller, middleware, and filters; or one route in depth by `name` or `uri`. | On |
+| `routes` | All routes with methods, URI, name, controller, middleware and filters; or one route in depth by `name` or `uri`. | On |
 | `app_info` | Sections: `about` (default; versions, environment, drivers, opcache, narrowed with `parts`), `env_keys` (variable names only, never values), `storage` (disk config with credentials stripped, and the symlink map), `schedule` (cron expression, next run, flags), `events` (listeners including wildcards; flags `ShouldQueue` and `ShouldBroadcast`). | On |
 | `config_inspect` | Config key tree with types; values are triple-gated (opt-in + safe-list + block-list). | **Off** |
 
-Every call is audited (tool name, resolved section and argument shape, never values) and passes through best-effort output redaction. Answers are compact JSON and capped: `agent-mcp.query.max_rows` (default 50) bounds `db_query` and `db_raw_select`, and `agent-mcp.logs.max_lines` (default 100) bounds `read_logs`. A capped answer carries `truncated: true` only when output was cut.
+Every call is audited (tool name, resolved section and argument shape, never values) and passes through best-effort output redaction.
 
-## How it works
+## Two ways to connect: MCP or CLI
 
-1. The agent (or your shell) calls a tool by name with a JSON argument object.
-2. In MCP mode, the HTTP route checks the single Bearer key first and fails closed. In CLI mode, shell access is the trust boundary.
-3. The tool runs read-only: database reads go through a hardened read-only connection, `db_raw_select` passes a SELECT-only validator, and output is redacted.
-4. The result returns as JSON. In CLI mode, content goes to stdout, diagnostics to stderr, and the exit code reflects whether the tool reported an error.
+You do not have to register one more MCP server. The package works in two modes, and the installer records your choice in a committed `.agent-mcp.json` so your team, CI and laravel-boost all resolve the same setup.
+
+```bash
+php artisan agent-mcp:install --mode=mcp   # default
+php artisan agent-mcp:install --mode=cli
+```
+
+**MCP mode (default).** Registers a full MCP server on your app over HTTP (and a local stdio bridge), prints the ready-to-paste `.mcp.json` blocks and the `claude mcp add` one-liner, and activates the `agent-mcp-investigation` boost skill. Use it for persistent, low-latency tool access across a long interactive session.
+
+**CLI mode.** No MCP server registration. The artisan commands (`agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`) call the tools directly, locally or against a remote server, and activate the `agent-mcp-cli` boost skill. Use it for one-off calls, scripts and CI, or when you do not want to expose an HTTP endpoint. To target a remote endpoint, record its URL during install:
+
+```bash
+php artisan agent-mcp:install --mode=cli --url=https://your-app.example.com
+```
+
+The URL is committed in `.agent-mcp.json` (the CLI equivalent of `.mcp.json`) and is read by every `agent-mcp:call` on that checkout. `AGENT_MCP_URL` in env overrides the committed value. The URL must be `https` (plain `http` is allowed only for loopback addresses). `AGENT_MCP_KEY` stays in env and is never committed.
+
+> [!WARNING]
+> Committing a URL is a credential-routing decision: every `agent-mcp:call` will send the `AGENT_MCP_KEY` Bearer token to that host. Review changes to the `url` in `.agent-mcp.json` as you would review a secret.
+
+> [!NOTE]
+> Commit `.agent-mcp.json`. It records the chosen mode and, for CLI remote setups, the endpoint URL (`{"mode":"cli","version":1,"url":"https://..."}`) for the whole team. When the file is absent, the package defaults to `mcp`, so a missing file is never a breaking state.
+
+After install, wire boost so it injects the active mode's skill and guideline:
+
+```bash
+php artisan boost:install
+# or, if boost is already installed:
+php artisan boost:update --discover
+```
 
 ## Client setup (MCP mode)
 
-### HTTP transport (remote / production)
+### HTTP transport (remote or production)
 
 ```json
 {
@@ -231,7 +199,7 @@ Every call is audited (tool name, resolved section and argument shape, never val
 Or register it with the Claude CLI (required when using Laravel Boost):
 
 ```bash
-claude mcp add --transport http https://your-app.com/agent-mcp --header "Authorization: Bearer YOUR_KEY_HERE"
+claude mcp add --transport http agent-mcp https://your-app.com/agent-mcp --header "Authorization: Bearer YOUR_KEY_HERE"
 ```
 
 ### stdio bridge (Claude Desktop)
@@ -256,7 +224,7 @@ Claude Desktop does not send custom HTTP headers. Use the built-in `agent-mcp:st
 
 ## CLI usage (CLI mode)
 
-Three commands call the tools directly, honoring the same per-tool flags, audit log, and redaction as the HTTP endpoint:
+Three commands call the tools directly, honouring the same per-tool flags, audit log and redaction as the HTTP endpoint:
 
 ```bash
 php artisan agent-mcp:tools                 # list callable tools (--all includes disabled ones)
@@ -265,42 +233,49 @@ php artisan agent-mcp:call db_schema '{"table":"users"}'
 php artisan agent-mcp:call app_info '{"section":"about"}' --raw | jq '.environment'
 ```
 
-By default the command runs the tool in-process (local mode). Remote mode is auto-selected when a remote URL is configured: either a `url` committed in `.agent-mcp.json` (set via `agent-mcp:install --url=`) or the `AGENT_MCP_URL` env variable (env takes precedence). Set `AGENT_MCP_KEY` in env to provide the Bearer token. `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in command output. The URL must be `https` (loopback `http` excepted); a configured `http://` non-loopback URL errors loudly rather than falling back to local.
+By default the command runs the tool in-process (local mode). Remote mode is selected automatically when a remote URL is configured: either a `url` committed in `.agent-mcp.json` (set with `agent-mcp:install --url=`) or the `AGENT_MCP_URL` env variable (env wins). Set `AGENT_MCP_KEY` in env to provide the Bearer token. `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in command output. A configured `http://` non-loopback URL errors loudly rather than falling back to local.
 
 > [!WARNING]
 > Sensitive tools (`run_artisan`, `config_inspect`, `db_diagnostics`, `cache_keys`) can land in terminal scrollback. `agent-mcp:call` refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`; piping or redirecting is always allowed. Do not add `agent-mcp:*` to the `run_artisan` allowlist.
 
+## How it works
+
+1. The agent (or your shell) calls a tool by name with a JSON argument object.
+2. In MCP mode, the HTTP route checks the single Bearer key first and fails closed. In CLI mode, shell access is the trust boundary.
+3. The tool runs read-only: database reads go through a hardened read-only connection, `db_raw_select` passes a SELECT-only validator, and output is redacted.
+4. The result returns as compact JSON. In CLI mode, content goes to stdout, diagnostics to stderr, and the exit code reflects whether the tool reported an error.
+
 ## Security model
 
-Read this before deploying to production. The read-only guarantee is not a single flag; it is several independent layers, so a failure in one does not breach the boundary.
+Read this before deploying to production. The read-only guarantee is not a single flag. It is several independent layers, so a failure in one does not breach the boundary.
 
 ### Authentication: fail-closed server key
 
-The endpoint is protected by a single server-admin key (`AGENT_MCP_KEY`), not Sanctum, not a user model, not a database table. The check is fail-closed: when the key is unset or empty, every request is rejected with `401` before any comparison runs (this closes the `hash_equals('', '')` fail-open). The comparison is constant-time. The key is read only from server config/env; the stdio bridge sources it only from operator-set ENV, never from request data.
+The endpoint is protected by a single server-admin key (`AGENT_MCP_KEY`): not Sanctum, not a user model, not a database table. The check is fail-closed: when the key is unset or empty, every request is rejected with `401` before any comparison runs (this closes the `hash_equals('', '')` fail-open). The comparison is constant-time. The key is read only from server config and env; the stdio bridge sources it only from operator-set env, never from request data.
 
 The header defaults to `Authorization`. Override it with `AGENT_MCP_KEY_HEADER` for non-standard clients.
 
 ### Read-only database boundary
 
-1. A SELECT-only statement validator rejects any non-SELECT SQL, parsed as a token tree (not a regex), so stacked statements and file functions are refused.
-2. Per-engine session hardening is applied once per connection: `PRAGMA query_only = ON` (SQLite), `SET default_transaction_read_only = on` (PostgreSQL), `SET SESSION max_execution_time = <ms>` (MySQL). `PDO::ATTR_EMULATE_PREPARES` is asserted `false` (emulated prepares allow stacked queries).
-3. On the default-connection fallback, the package clones the connection config into an ephemeral `agent-mcp-readonly` connection and hardens the clone only; the shared default connection is never mutated.
+1. A SELECT-only statement validator rejects any non-SELECT SQL. It parses a token tree instead of matching a regex, so stacked statements, a `WITH ... DELETE` and file functions are refused, and it also refuses SQL that the parser and the database could tokenise differently (backslashes, `$` quoting, `#` and `/*!` comments).
+2. Per-engine session hardening is applied once per connection: `PRAGMA query_only = ON` (SQLite), `SET default_transaction_read_only = on` (PostgreSQL), `SET SESSION max_execution_time = <ms>` (MySQL). `PDO::ATTR_EMULATE_PREPARES` is asserted `false`, because emulated prepares allow stacked queries.
+3. On the default-connection fallback, the package clones the connection config into an ephemeral `agent-mcp-readonly` connection and hardens the clone only. The shared default connection is never mutated.
 4. A dedicated readonly DB user (strongly recommended) is an independent, grant-level boundary that holds even if the application layer has a bug.
 
 > [!NOTE]
-> MySQL has no per-session read-only mode for a normal user, so a readonly GRANT matters most there. See [Read-only database access](#read-only-database-access) below for the exact MySQL, PostgreSQL, and SQLite grants.
+> MySQL has no per-session read-only mode for a normal user, so a readonly GRANT matters most there. See [Read-only database access](#read-only-database-access) for the exact MySQL, PostgreSQL and SQLite setup.
 
 ### Redaction is best-effort, not a guarantee
 
-Output redaction replaces detected secrets (emails, Bearer tokens, JWTs, AWS keys, card numbers, password-like pairs) with `[REDACTED]` in every tool response. It is defense-in-depth, not the boundary: novel or encoded secrets pass through, and an LLM can be instructed to exfiltrate in ways redaction cannot catch. The read-only grant is what prevents writes and file reads; redaction only reduces accidental exposure in output.
+Output redaction replaces detected secrets (emails, Bearer tokens, JWTs, AWS keys, card numbers, password-like pairs) with `[REDACTED]` in every tool response. It is defence in depth, not the boundary: novel or encoded secrets pass through, and an LLM can be instructed to exfiltrate in ways redaction cannot catch. The read-only grant is what prevents writes and file reads. Redaction only reduces accidental exposure in output.
 
 ### app.debug warning
 
-Never expose the endpoint with `APP_DEBUG=true`. The package strips stack traces from MCP error responses regardless of the flag, but Laravel debug pages and toolbars can leak config, bindings, and env to any client that reaches the endpoint. Set `APP_DEBUG=false` in production, or restrict the endpoint to an internal network during local debugging.
+Never expose the endpoint with `APP_DEBUG=true`. The package strips stack traces from MCP error responses regardless of the flag, but Laravel debug pages and toolbars can leak config, bindings and env to any client that reaches the endpoint. Set `APP_DEBUG=false` in production, or restrict the endpoint to an internal network while you debug.
 
 ### Sensitive-tool opt-in model
 
-`run_artisan`, `config_inspect`, `db_diagnostics`, and `cache_keys` are off by default because they can surface sensitive information. Value-returning tools (`config_inspect`, and `cache` with a `key`) gate values twice: an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then a block-list that unconditionally redacts known-sensitive dot-paths. The block-list always wins, even with explicit opt-in.
+`run_artisan`, `config_inspect`, `db_diagnostics` and `cache_keys` are off by default because they can surface sensitive information. Value-returning tools (`config_inspect`, and `cache` with a `key`) gate values twice: an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then a block-list that unconditionally redacts known-sensitive dot-paths. The block-list always wins, even with an explicit opt-in.
 
 ## Read-only database access
 
@@ -324,11 +299,11 @@ GRANT SELECT ON your_database.* TO 'agent_readonly'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Do not grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE`, or `DROP`. For `db_diagnostics`, also `GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';`.
+Do not grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE` or `DROP`. For `db_diagnostics`, also run `GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';`.
 
 ### SQLite
 
-SQLite has no grant system. The package sets `PRAGMA query_only = ON`; for defense-in-depth, open the file read-only via the DSN:
+SQLite has no grant system. The package sets `PRAGMA query_only = ON`. For defence in depth, open the file read-only through the connection options:
 
 ```php
 'readonly' => [
@@ -346,11 +321,49 @@ Add a `readonly` connection to `config/database.php`, then set:
 AGENT_MCP_DB_CONNECTION=readonly
 ```
 
-When `connection` is null (the default), the package clones the app's default connection into a hardened ephemeral `agent-mcp-readonly` connection; the shared default is never modified.
+When `connection` is null (the default), the package clones the app's default connection into a hardened ephemeral `agent-mcp-readonly` connection. The shared default is never modified.
+
+## Agent guideline and skill injection
+
+When laravel-boost is not installed, `agent-mcp:install` writes the mode-tailored guideline into each selected agent's instruction file and copies the active-mode skill (`agent-mcp-investigation` for MCP mode, `agent-mcp-cli` for CLI mode) into each agent's skills directory.
+
+The guideline sits inside a managed marker block:
+
+```
+<laravel-agent-mcp-guidelines>
+... mode-correct guideline content ...
+</laravel-agent-mcp-guidelines>
+```
+
+The injection is idempotent: re-running replaces the block in place and keeps everything outside it. If the file already has an unbalanced or duplicated marker set, the command aborts with a clear error and leaves the file untouched. On a mode switch, the previous mode's skill directory is removed and replaced. These directories are package-managed and overwritten on every re-run, so do not hand-edit them.
+
+The installer targets the agents it detects in the project (falling back to Claude Code), and you can override that:
+
+```bash
+php artisan agent-mcp:install --agents=claude_code,cursor   # specific agents
+php artisan agent-mcp:install --agents=all                  # every supported agent
+php artisan agent-mcp:install --no-inject                   # write no guideline or skill files
+php artisan agent-mcp:install --inject                      # inject even when laravel-boost is installed
+```
+
+| Key | Guideline file | Skills dir |
+|-----|---------------|------------|
+| `claude_code` | `CLAUDE.md` | `.claude/skills` |
+| `cursor` | `AGENTS.md` | `.cursor/skills` |
+| `copilot` | `AGENTS.md` | `.github/skills` |
+| `junie` | `AGENTS.md` | `.junie/skills` |
+| `gemini` | `GEMINI.md` | `.agents/skills` |
+| `codex` | `AGENTS.md` | `.agents/skills` |
+| `opencode` | `AGENTS.md` | `.agents/skills` |
+| `amp` | `AGENTS.md` | `.agents/skills` |
+| `kiro` | `AGENTS.md` | `.kiro/skills` |
+| `antigravity` | `AGENTS.md` | `.agents/skills` |
+
+Agents that share a guideline file or skill directory are written once, however many matching keys you select. In an interactive terminal without `--agents`, the installer shows a multiselect with the detected agents pre-selected. When laravel-boost is installed, the command defers to it by default and prints the `boost:install` / `boost:update --discover` next step.
 
 ## Laravel Boost integration
 
-The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically. Which skill and guideline branch are active depends on the mode in `.agent-mcp.json`.
+The package ships boost-discoverable assets that `boost:install` and `boost:update --discover` pick up automatically. Which skill and guideline branch is active depends on the mode in `.agent-mcp.json`.
 
 | Asset | Active in |
 |-------|-----------|
@@ -358,11 +371,9 @@ The package ships boost-discoverable assets that `boost:install` and `boost:upda
 | `resources/boost/skills/agent-mcp-cli/SKILL.blade.php` | CLI mode |
 | `resources/boost/guidelines/core.blade.php` | Both (mode-branched) |
 
-Full mode-filtering (only the active mode's skill is injected) needs a boost version with `SKILL.blade.php` support. On older boost, both `SKILL.md` fallbacks install unfiltered (functional, not mode-tailored). Boost does not auto-wire third-party MCP servers ([laravel/boost#522](https://github.com/laravel/boost/issues/522)); bind the server via `agent-mcp:install` or `claude mcp add`.
+Full mode filtering (only the active mode's skill is injected) needs a boost version with `SKILL.blade.php` support. On older boost, both `SKILL.md` fallbacks install unfiltered: functional, not mode-tailored. Boost does not auto-wire third-party MCP servers ([laravel/boost#522](https://github.com/laravel/boost/issues/522)), so bind the server with `agent-mcp:install` or `claude mcp add`.
 
-Each skill also carries an optional, opt-in community prompt: after a verified end-to-end investigation the agent may offer to star the repo, and after a genuine package-side bug it may offer to open an issue. Both are prose-permission only, capped at once per session, and never auto-executed (no `gh` call without your explicit yes on a visible draft). The executable detail lives in each skill's `references/community.md`.
-
-**Without boost:** `agent-mcp:install` injects the assets directly. See [Agent guideline and skill injection](#agent-guideline-and-skill-injection) above.
+Each skill also carries an optional, opt-in community prompt: after a verified end-to-end investigation the agent may offer to star the repo, and after a genuine package-side bug it may offer to open an issue. Both are prose-permission only, capped at once per session, and never run automatically (no `gh` call without your explicit yes on a visible draft). The detail lives in each skill's `references/community.md`.
 
 ## How this compares
 
@@ -373,7 +384,7 @@ laravel-agent-mcp is complementary to the official Laravel AI packages, not a re
 | Purpose | Give agents read-only access to a running app | SDK to build your own MCP server | Dev-time agent context on localhost | Direct SQL access |
 | Ready-made tools | 14 (DB, logs, queue, cache, routes, config) | None (you build them) | ~15 dev tools | None |
 | Read-only enforcement | SELECT validator + hardened connection + redaction | You implement it | DB query tool runs any SQL | DB grant only |
-| Auth | Single Bearer key, no Sanctum/user/DB | Sanctum / OAuth (your wiring) | Local stdio, no auth | DB credentials |
+| Auth | Single Bearer key, no Sanctum, user or DB | Sanctum / OAuth (your wiring) | Local stdio, no auth | DB credentials |
 | CLI + remote | Yes (`agent-mcp:call`, local and remote) | Local stdio | Local stdio | n/a |
 | Boost skill shipped | Yes | n/a | n/a | No |
 | Production-safe remote | Yes | Depends on your wiring | Dev-only | Yes, but raw SQL |
@@ -388,7 +399,11 @@ laravel-agent-mcp is complementary to the official Laravel AI packages, not a re
 
 ### How do I give Claude Code read-only access to my Laravel database?
 
-Install the package, run `php artisan agent-mcp:install`, set `AGENT_MCP_KEY` in `.env`, and add the printed `.mcp.json` block to Claude Code (or run `claude mcp add`). The agent then calls `db_schema`, `db_query`, and `db_raw_select`, all read-only.
+Install the package, run `php artisan agent-mcp:install`, set `AGENT_MCP_KEY` in `.env`, and add the printed `.mcp.json` block to Claude Code (or run `claude mcp add`). The agent then calls `db_schema`, `db_query` and `db_raw_select`, all read-only.
+
+### Does it make Claude Code slower or more expensive?
+
+It is built to do the opposite. Claude Code loads only tool names and the server instructions (about 1,500 characters) upfront, answers are compact JSON, and long answers are capped with a `truncated` flag. See [Built for Claude Code](#built-for-claude-code-small-by-design).
 
 ### Is this safe to use against a production database?
 
@@ -412,7 +427,11 @@ Boost is a dev-time tool for coding agents on your local machine, and its databa
 
 ### What databases are supported?
 
-MySQL, PostgreSQL, and SQLite. MariaDB is not officially supported because its statement-timeout syntax differs from MySQL's.
+MySQL, PostgreSQL and SQLite. MariaDB is not officially supported because its statement-timeout syntax differs from MySQL's.
+
+### Upgrading from 1.x?
+
+2.0 merges 25 tools into 14 and renames tools and config keys, with no aliases. The [changelog](CHANGELOG.md#upgrading-to-200) has a table that maps every old tool and config flag to its new name. If you published `config/agent-mcp.php` before 2.0, add the new flags (`db_health`, `queue_status`, `cache`, `routes`, `app_info`, `db_diagnostics`) by hand: the published array replaces the default, so the new tools stay off until you do. `agent-mcp:install` and `agent-mcp:tools` print a warning that names each retired key it finds.
 
 ## Requirements
 
@@ -424,9 +443,22 @@ CI runs the suite against `laravel/mcp` 0.6, 0.9 and the latest 1.x. The upper b
 
 ## For AI agents
 
-This repository is AI-readiness aware:
+Quick reference for a model reading this file or recommending the package:
 
-- [`llms.txt`](llms.txt): a machine-readable index of what the package is and where its docs live.
+| Fact | Value |
+|------|-------|
+| Package | `anilcancakir/laravel-agent-mcp` (Composer) |
+| What it is | A read-only MCP server and CLI for a running Laravel app |
+| Default endpoint | `POST /agent-mcp` (HTTP MCP) |
+| Auth | `Authorization: Bearer <AGENT_MCP_KEY>`; `401` until the key is set |
+| Env | `AGENT_MCP_KEY`, `AGENT_MCP_KEY_HEADER`, `AGENT_MCP_URL`, `AGENT_MCP_DB_CONNECTION`, `AGENT_MCP_MAX_ROWS`, `AGENT_MCP_LOG_MAX_LINES` |
+| On by default (10) | `db_schema`, `db_query`, `db_raw_select`, `db_health`, `migrations_status`, `read_logs`, `queue_status`, `cache`, `routes`, `app_info` |
+| Off by default (4) | `run_artisan`, `db_diagnostics`, `cache_keys`, `config_inspect` |
+| Enable a tool | `config('agent-mcp.tools.<name>')` |
+| Writes | None. `run_artisan` runs only exact allowlisted commands |
+| CLI | `agent-mcp:call`, `agent-mcp:tools`, `agent-mcp:schema`, `agent-mcp:stdio`, `agent-mcp:install` |
+
+- [`llms.txt`](llms.txt) is a machine-readable index of what the package is and where its docs live.
 - In a consumer project, `agent-mcp:install` injects the package guideline into the selected agents' instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) and copies the active-mode skill into each agent's skills directory, so the agent learns how to use the tools. See [Agent guideline and skill injection](#agent-guideline-and-skill-injection).
 
 ## Changelog
