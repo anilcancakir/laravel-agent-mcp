@@ -6,7 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## Unreleased
 
+### Changed
+
+- `laravel/mcp` requirement widened from `>=0.6 <0.10` to `>=0.6 <2.0`, so an application can move to `laravel/mcp` 1.x and through it to `laravel/ai` 1.x, which conflicts with `laravel/mcp <1.0`. The suite, PHPStan and Pint pass on 0.6.7, 0.9.7 and 1.1.2, and CI now runs 0.6, 0.9 and the latest 1.x. The remote CLI sends requests without `_meta`, which 1.x treats as legacy and exempts from header validation, and no code here builds a `Request` with a session id, so the 1.0 breaking changes needed only the bridge fix below.
+- Dev tooling: Pest `^4.0.2||^5.0` and `pestphp/pest-plugin-laravel` `^4.0||^5.0`. Pest 5 needs PHP 8.4, so PHP 8.3 keeps resolving Pest 4.
+- Dependabot no longer ignores `laravel/mcp` releases below 2.0.
+
 ### Fixed
+
+- `agent-mcp:stdio` mirrors the request's method, tool name and `_meta` protocol version into the `Mcp-Method`, `Mcp-Name` and `MCP-Protocol-Version` headers. `laravel/mcp` 1.x rejects a non-legacy request whose headers do not match its body with error -32020, and the bridge used to send a fixed protocol version and no method header. A value that is not plain header-safe text is dropped instead of being copied from stdin into the HTTP request.
+- `cache_keys` reads the configured redis client before it connects. With the `predis` client and no Predis package installed, the tool failed with an internal error instead of reporting `available: false`. Clients built on phpredis keep enumerating keys. This also clears a PHPStan finding that Larastan 3.14 raised on the old `instanceof` check.
 
 - `cache_inspect` no longer relies on a `catch (Throwable)` around `unserialize()`, which PHPStan 2.2.16 flags as dead because it cannot see Laravel's error handler turning the parse warning into an exception. The warning is now recorded for that one call, and any payload that fails or only partly parses (for example `i:5;junk`) is reported as the string it is, as before; deprecations still reach the application's handler.
 - `cache_inspect` no longer parses a cached payload that names an enum. `unserialize()` autoloads enum classes even with `allowed_classes` off, so inspecting such a key ran whatever the autoloader includes. Those values are now reported as strings.
