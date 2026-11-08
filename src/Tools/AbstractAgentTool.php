@@ -125,7 +125,13 @@ abstract class AbstractAgentTool extends Tool
     /**
      * Redact then encode a payload as compact JSON, the single output shape of the
      * JSON tools: no pretty-printing (whitespace costs agent tokens), slashes and
-     * unicode left readable, and a failed encode throws instead of returning '{}'.
+     * unicode left readable.
+     *
+     * A value json_encode cannot represent (a non-finite float from opcache_get_status()
+     * under JIT, invalid UTF-8 in a binary column) must not sink the rest of the payload:
+     * the partial-output flag turns the float into 0 (PHP's own substitute) and the substitute flag replaces
+     * the bad bytes. PHP lets partial output win over throw, so only a failure it cannot
+     * repair (depth, recursion) still throws instead of returning '{}'.
      *
      * @param  array<mixed>  $payload
      */
@@ -133,9 +139,10 @@ abstract class AbstractAgentTool extends Tool
     {
         $redacted = $this->redactor()->redactArray($payload);
 
-        return Response::text(
-            json_encode($redacted, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
-        );
+        $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+            | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE;
+
+        return Response::text(json_encode($redacted, $flags));
     }
 
     /**

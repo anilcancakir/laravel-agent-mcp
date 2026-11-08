@@ -21,6 +21,15 @@ class StubAgentTool extends AbstractAgentTool
             return $denial;
         }
 
+        // A non-finite float and invalid UTF-8, as opcache_get_status() can return under JIT.
+        if ($request->get('mode') === 'unencodable') {
+            return $this->jsonResponse([
+                'ratio' => NAN,
+                'blob' => "\xB1\x31",
+                'ok' => 'kept',
+            ]);
+        }
+
         // Exercises the shared section validator and compact responder the merged tools use.
         if ($request->get('mode') === 'sectioned') {
             $section = $this->requestedSection($request, ['summary', 'detail', 'raw_rows']);

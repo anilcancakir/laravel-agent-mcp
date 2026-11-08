@@ -85,6 +85,16 @@ it('answers with compact json that keeps slashes and unicode readable', function
         ->assertSee('{"section":"summary","path":"app/Models/User.php","note":"café","contact":""}');
 });
 
+it('keeps the rest of the payload when a value cannot be encoded', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'unencodable'])
+        ->assertOk()
+        ->assertSee('"ratio":0')
+        ->assertSee("\u{FFFD}1")
+        ->assertSee('"ok":"kept"');
+});
+
 it('redacts string leaves of the json payload before encoding', function (): void {
     config()->set('agent-mcp.audit.enabled', false);
     config()->set('agent-mcp.redaction.enabled', true);
