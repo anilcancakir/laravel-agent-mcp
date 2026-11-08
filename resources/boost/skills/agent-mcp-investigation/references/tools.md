@@ -1,6 +1,6 @@
 # agent-mcp tool reference
 
-Sections, parameters, caps and default state of the 14 tools. Every tool is read-only and gated by `config('agent-mcp.tools.<name>')`, and its output goes through a best-effort redactor. A tool with sections uses its first listed section when none is given and refuses an unknown one with the valid names. Tools marked OFF are disabled by default and return a denial until the operator enables them.
+Sections, parameters, caps and default state of the 14 tools. No tool writes to the database; each is gated by `config('agent-mcp.tools.<name>')`, and its output goes through a best-effort redactor. A tool with sections uses its first listed section when none is given and refuses an unknown one with the valid names. Tools marked OFF are disabled by default and return a denial until the operator enables them.
 
 ## Contents
 

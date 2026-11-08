@@ -115,7 +115,7 @@ final class ReadLogsTool extends AbstractAgentTool
      */
     private function resolvedLineCount(Request $request): int
     {
-        $max = (int) config('agent-mcp.logs.max_lines', 200);
+        $max = (int) config('agent-mcp.logs.max_lines', 100);
         $max = max(1, $max);
 
         $requested = $request->get('lines');
