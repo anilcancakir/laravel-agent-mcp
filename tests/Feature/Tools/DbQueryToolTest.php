@@ -1,6 +1,7 @@
 <?php
 
 use Anilcancakir\LaravelAgentMcp\Tools\DbQueryTool;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
@@ -126,6 +127,58 @@ it('returns null for a find query when the id does not exist', function (): void
     ])
         ->assertOk()
         ->assertSee('null');
+});
+
+it('returns a found row holding invalid UTF-8 instead of an empty object', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+
+    DB::connection('readonly')->statement('CREATE TABLE blobs (id INTEGER PRIMARY KEY, bin BLOB)');
+    DB::connection('readonly')->insert("INSERT INTO blobs (id, bin) VALUES (1, x'ff80')");
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'blobs',
+        'query_type' => 'find',
+        'id' => 1,
+    ])
+        ->assertOk()
+        ->assertSee('"row":{"id":1,"bin":"'."\u{FFFD}");
+});
+
+it('refuses an unknown query_type instead of running a where query', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'query_type' => 'fnd',
+    ])
+        ->assertHasErrors([
+            'find',
+            'where',
+            'count',
+        ]);
+});
+
+it('caps a where query at 50 rows when no max_rows is configured', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', false);
+    config()->set('agent-mcp.query', []);
+
+    $statements = [];
+    DB::connection('readonly')->listen(function (QueryExecuted $query) use (&$statements): void {
+        if (str_contains($query->sql, '"agents"')) {
+            $statements[] = $query->sql;
+        }
+    });
+
+    DbQueryToolServer::tool(DbQueryTool::class, [
+        'table' => 'agents',
+        'query_type' => 'where',
+    ])->assertOk();
+
+    expect($statements)->toBe([
+        'select * from "agents" limit 51',
+    ]);
 });
 
 // ---------------------------------------------------------------------------
