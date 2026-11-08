@@ -8,6 +8,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool: config_inspect
@@ -36,14 +37,13 @@ use Laravel\Mcp\Server\Attributes\Name;
  */
 #[Name('config_inspect')]
 #[Description(<<<'TEXT'
-    Inspect the application config tree, and optionally reveal specific values. Use it to audit config structure or verify a single non-sensitive value. Enable with care.
+    Config tree: the application config keys and their value types, and optionally specific values. Use it to audit config structure or verify one non-sensitive value.
 
-    Usage:
     - Off by default; treat a denial as the expected default.
-    - `key` is a config dot-path or file, for example "app" or "database.connections.mysql". By default only the key tree with value types is returned.
-    - A value is revealed only when `reveal_values` is true AND the dot-path is safe-listed (the operator safe_list plus any you pass in `safe_keys`) AND it is not block-listed. The block-list always wins, so secrets such as keys, passwords, and DSNs stay [REDACTED] even when explicitly requested.
-    - Read-only.
+    - `key` is a config dot-path or file such as "app" or "database.connections.mysql"; by default only the key tree with value types comes back.
+    - A value is revealed only when `reveal_values` is true, the dot-path is safe-listed (the operator safe_list plus your `safe_keys`) and it is not block-listed. The block-list always wins, so keys, passwords and DSNs stay [REDACTED] even when requested.
     TEXT)]
+#[IsReadOnly]
 class ConfigInspectTool extends AbstractAgentTool
 {
     /**
@@ -110,16 +110,12 @@ class ConfigInspectTool extends AbstractAgentTool
             ];
         }
 
-        $payload = [
+        // jsonResponse redacts as the last net only; the path gate above is the real guard.
+        return $this->jsonResponse([
             'key' => $key,
             'type' => gettype($value),
             'children' => $children,
-        ];
-
-        // Redaction is the last net only; the path gate above is the real guard.
-        $redacted = $this->redactor()->redactArray($payload);
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
+        ]);
     }
 
     /**
@@ -168,7 +164,7 @@ class ConfigInspectTool extends AbstractAgentTool
 
     /**
      * Whether the dot-path matches a block-list token via case-insensitive
-     * substring. Mirrors the cache_inspect block-list matching for consistency.
+     * substring, so a credential-bearing path (url, dsn, secret) is caught wherever the token sits.
      */
     private function pathIsBlockListed(string $path): bool
     {

@@ -3,6 +3,7 @@
 use Anilcancakir\LaravelAgentMcp\Tools\DbSchemaTool;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -78,6 +79,25 @@ it('returns columns, indexes and foreign keys for a known table', function (): v
 
     // The unique index on email must appear.
     $response->assertSee('index');
+});
+
+it('emits compact JSON for the table list and the table detail', function (): void {
+    $tool = app(DbSchemaTool::class);
+
+    $list = (string) $tool->handle(new Request([]))->content();
+    $detail = (string) $tool->handle(new Request(['table' => 'schema_fixtures']))->content();
+
+    expect($list)->not->toContain("\n")
+        ->and($detail)->not->toContain("\n")
+        ->and($detail)->toContain('"table":"schema_fixtures"');
+});
+
+it('is annotated read-only within the description budget', function (): void {
+    $tool = app(DbSchemaTool::class);
+
+    expect($tool->toArray()['annotations'])->toHaveKey('readOnlyHint', true)
+        ->and(mb_strlen((string) $tool->description()))->toBeLessThanOrEqual(1500)
+        ->and((string) $tool->description())->not->toContain('Read-only');
 });
 
 // --- unknown table: clean error ---

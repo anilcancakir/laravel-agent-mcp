@@ -29,11 +29,10 @@ use Laravel\Mcp\Server\Attributes\Description;
  * happens regardless of registration (hiding is not authorization).
  */
 #[Description(<<<'TEXT'
-    Run a single artisan command from an exact, operator-defined allowlist. This is the only tool that executes anything; assume it is unavailable unless you have confirmed it is enabled.
+    Run one artisan command from an exact, operator-defined allowlist. It is the only tool that executes anything, so assume it is unavailable unless you have confirmed it is enabled.
 
-    Usage:
-    - Off by default with an empty allowlist. Only commands the operator allowlisted run; everything else is refused. Do not assume any command is available.
-    - `command` must be the exact allowlisted command name (no wildcards). `arguments` is a map of option name to value, and only allowlisted options are accepted.
+    - Off by default with an empty allowlist: only allowlisted commands run and everything else is refused, so do not assume any command exists.
+    - `command` must match an allowlisted name exactly (no wildcards) and `arguments` may carry only the options the allowlist permits.
     - Treat a denial as the expected default, not an error to work around.
     TEXT)]
 class RunArtisanTool extends AbstractAgentTool
