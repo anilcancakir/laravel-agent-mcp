@@ -11,8 +11,12 @@ use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
+use PhpMyAdmin\SqlParser\Components\Limit;
 use PhpMyAdmin\SqlParser\Parser;
 use PhpMyAdmin\SqlParser\Statements\SelectStatement;
+use PhpMyAdmin\SqlParser\Statements\WithStatement;
+use PhpMyAdmin\SqlParser\TokenType;
 
 /**
  * MCP tool db_raw_select: run an ad-hoc, read-only SELECT supplied as raw SQL.
@@ -23,8 +27,9 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
  *      was already verified by the HTTP middleware before the tool ran.
  *   2. SelectStatementValidator::validate() - allowlist grammar; rejects anything
  *      that is not a single read-only SELECT BEFORE a query ever runs.
- *   3. auto-LIMIT - an unbounded SELECT is capped at config('agent-mcp.query.max_rows')
- *      to bound result size (DoS mitigation, paired with the connection timeout).
+ *   3. row cap - an explicit LIMIT above config('agent-mcp.query.max_rows') is refused
+ *      and an unbounded SELECT gets the cap appended, so result size stays bounded
+ *      (DoS mitigation, paired with the connection timeout).
  *   4. $this->readonly() - the hardened read-only connection (PRAGMA query_only / a
  *      SELECT-only grant + statement timeout) is the REAL boundary: even
  *      if validation were bypassed, a write is refused at the connection layer.
@@ -36,14 +41,13 @@ use PhpMyAdmin\SqlParser\Statements\SelectStatement;
  * attempted query, or driver internals back to the agent.
  */
 #[Description(<<<'TEXT'
-    Run an ad-hoc read-only SELECT on the hardened read-only connection. Use this only for queries db_query cannot express (multi-table JOINs, subqueries, aggregates, window functions); use db_query for simple lookups.
+    Raw SQL SELECT for JOINs, subqueries, aggregates and window functions that db_query cannot express; use db_query for simple lookups.
 
-    Usage:
-    - Write a single valid SELECT or read-only CTE. A SELECT-only grammar validator rejects writes, stacked statements, and file functions before execution.
-    - A row LIMIT is applied automatically when you omit one (agent-mcp.query.max_rows).
-    - Call db_schema first to get exact table and column names.
-    - Read-only. Invalid SQL is refused with a generic error and never echoed back.
+    - One SELECT or read-only CTE; writes, stacked statements and file functions are refused before execution.
+    - Rows are capped at agent-mcp.query.max_rows: omit LIMIT to get the cap with truncated true when cut, or give a LIMIT within it.
+    - Call db_schema first for exact table and column names.
     TEXT)]
+#[IsReadOnly]
 class DbRawSelectTool extends AbstractAgentTool
 {
     /**
@@ -76,7 +80,7 @@ class DbRawSelectTool extends AbstractAgentTool
                 ->description(
                     'A single read-only SELECT statement. Writes, multiple statements, '
                     .'file/side-effect functions, and non-SELECT statements are rejected. '
-                    .'A LIMIT is appended automatically when absent.'
+                    .'A LIMIT above agent-mcp.query.max_rows is refused; without one the cap is applied.'
                 ),
         ];
     }
@@ -104,58 +108,94 @@ class DbRawSelectTool extends AbstractAgentTool
             );
         }
 
-        // 4. Cap an unbounded statement so the result set cannot grow without limit.
-        $sql = $this->ensureLimit($sql);
+        // 4. Bound the result. An explicit LIMIT stands only when it is a plain number
+        //    within the cap; without one the cap plus one row is appended, so a full
+        //    extra row is what tells a cut result from one that fitted exactly.
+        $maxRows = (int) config('agent-mcp.query.max_rows', 100);
+        $parser = new Parser($sql);
+        $limit = $this->outerLimit($parser);
+
+        if ($limit !== null && ! $this->withinCap($limit, $maxRows)) {
+            return Response::error(
+                "The query LIMIT must be a plain number of at most {$maxRows} rows "
+                .'(the agent-mcp.query.max_rows cap); lower it or omit it.'
+            );
+        }
+
+        if ($limit === null) {
+            $sql = $this->statementBody($parser)."\nLIMIT ".($maxRows + 1);
+        }
 
         // 5. Execute on the hardened read-only connection. Validation has already
         //    passed; the connection's read-only enforcement remains the final guard.
         $rows = $this->readonly()->select($sql);
 
-        // 6. Best-effort redaction of secret-shaped values in the returned rows.
+        // 6. Cut to the cap and best-effort redact secret-shaped values in what is left.
         $redacted = $this->redactor()->redactArray(array_map(
             static fn (object $row): array => (array) $row,
-            $rows,
+            array_slice($rows, 0, $maxRows),
         ));
 
-        return Response::json($redacted);
-    }
+        $payload = [
+            'rows' => $redacted,
+        ];
 
-    /**
-     * Append a LIMIT clause when the outermost statement does not already declare one,
-     * so every result set is bounded by config('agent-mcp.query.max_rows').
-     *
-     * The SQL has already passed the validator (a single read-only SELECT or read-only
-     * CTE), so appending a trailing LIMIT cannot introduce a second statement or alter
-     * the statement's read-only shape. A plain SELECT with an explicit LIMIT is left
-     * untouched; anything else (no LIMIT, or a CTE whose outer body is unbounded) gets
-     * the configured cap appended.
-     */
-    protected function ensureLimit(string $sql): string
-    {
-        if ($this->hasOuterLimit($sql)) {
-            return $sql;
+        if (count($rows) > $maxRows) {
+            $payload['truncated'] = true;
         }
 
-        $maxRows = (int) config('agent-mcp.query.max_rows', 100);
-
-        return rtrim(rtrim($sql), ';')." LIMIT {$maxRows}";
+        return Response::json($payload);
     }
 
     /**
-     * Whether the outermost SELECT already declares a LIMIT.
+     * The LIMIT of the statement that produces the result, or null when it has none.
      *
-     * Re-parses with the same allowlist parser the validator uses (kept consistent with
-     * the parsed-tree approach, never a raw-string regex). Only a top-level
-     * SelectStatement exposes its LIMIT; a CTE (WithStatement) does not surface an outer
-     * limit, so it is treated as unbounded and gets the cap appended, which always
-     * bounds the result.
+     * For a CTE that is the statement after the WITH terms, not the WithStatement
+     * itself, which carries no LIMIT of its own. The validator has already proved
+     * that statement is a single SELECT.
      */
-    protected function hasOuterLimit(string $sql): bool
+    private function outerLimit(Parser $parser): ?Limit
     {
-        $parser = new Parser($sql);
-
         $statement = $parser->statements[0] ?? null;
 
-        return $statement instanceof SelectStatement && $statement->limit !== null;
+        if ($statement instanceof WithStatement) {
+            $statement = $statement->cteStatementParser?->statements[0] ?? null;
+        }
+
+        return $statement instanceof SelectStatement ? $statement->limit : null;
+    }
+
+    /**
+     * Whether an explicit LIMIT bounds the result within the cap.
+     *
+     * The parser leaves a bind placeholder as the string '?', and SQLite reads a
+     * negative row count as no limit at all, so only a non-negative integer counts.
+     * The offset is irrelevant: it skips rows, it never adds any.
+     */
+    private function withinCap(Limit $limit, int $maxRows): bool
+    {
+        return is_int($limit->rowCount) && $limit->rowCount >= 0 && $limit->rowCount <= $maxRows;
+    }
+
+    /**
+     * The statement text up to its terminating delimiter, ready for an appended clause.
+     *
+     * Rebuilt from the parsed tokens because a raw-string trim misses a ';' followed
+     * by a comment, and the clause would then land after the statement it must bound.
+     * A ';' inside a literal is part of a string token, so it never ends the cut.
+     */
+    private function statementBody(Parser $parser): string
+    {
+        $body = '';
+
+        foreach ($parser->list->tokens ?? [] as $token) {
+            if ($token->type === TokenType::Delimiter) {
+                break;
+            }
+
+            $body .= $token->token;
+        }
+
+        return $body;
     }
 }

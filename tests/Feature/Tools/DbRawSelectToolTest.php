@@ -2,6 +2,7 @@
 
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Server;
@@ -87,6 +88,106 @@ it('preserves an explicit LIMIT instead of appending another', function (): void
         ->assertOk()
         ->assertSee('user3')
         ->assertDontSee('user4');
+});
+
+it('wraps the rows and marks the result truncated only when the cap cut it', function (): void {
+    seedReadonlyUsers();
+
+    // Five seeded rows against a cap of four: the fifth row proves the cut.
+    config()->set('agent-mcp.query.max_rows', 4);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT id, name FROM users ORDER BY id'])
+        ->assertOk()
+        ->assertSee(['"rows":', 'user4', '"truncated":true'])
+        ->assertDontSee('user5');
+
+    // Exactly the cap: nothing was cut, so no marker.
+    config()->set('agent-mcp.query.max_rows', 5);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT id, name FROM users ORDER BY id'])
+        ->assertOk()
+        ->assertSee(['"rows":', 'user5'])
+        ->assertDontSee('truncated');
+});
+
+it('puts the appended cap on its own line so a trailing comment cannot swallow it', function (string $sql): void {
+    seedReadonlyUsers();
+
+    config()->set('agent-mcp.query.max_rows', 2);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => $sql])
+        ->assertOk()
+        ->assertSee(['user2', '"truncated":true'])
+        ->assertDontSee('user3');
+})->with([
+    // SQLite has no '#' comment, so the MySQL spelling cannot run on this fixture;
+    // both shapes share the newline that defeats it.
+    'trailing comment' => 'SELECT id, name FROM users ORDER BY id -- x',
+    'terminator then comment' => 'SELECT id, name FROM users ORDER BY id; -- x',
+]);
+
+it('caps an unbounded CTE', function (): void {
+    seedReadonlyUsers();
+
+    config()->set('agent-mcp.query.max_rows', 2);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, [
+        'sql' => 'WITH r AS (SELECT id, name FROM users) SELECT * FROM r ORDER BY id',
+    ])
+        ->assertOk()
+        ->assertSee(['user2', '"truncated":true'])
+        ->assertDontSee('user3');
+});
+
+it('keeps the explicit LIMIT of a CTE instead of appending a second one', function (): void {
+    seedReadonlyUsers();
+
+    // Only the tool's own query: the resolver also runs its hardening PRAGMA.
+    $executed = [];
+    DB::connection('readonly')->listen(function (QueryExecuted $query) use (&$executed): void {
+        if (str_starts_with($query->sql, 'WITH')) {
+            $executed[] = $query->sql;
+        }
+    });
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, [
+        'sql' => 'WITH r AS (SELECT id, name FROM users) SELECT * FROM r ORDER BY id LIMIT 3',
+    ])
+        ->assertOk()
+        ->assertSee('user3')
+        ->assertDontSee(['user4', 'truncated']);
+
+    expect($executed)->toHaveCount(1)
+        ->and(substr_count(strtoupper($executed[0]), 'LIMIT'))->toBe(1);
+});
+
+it('refuses an explicit LIMIT above the cap or not a plain number, naming the cap', function (string $sql): void {
+    seedReadonlyUsers();
+
+    config()->set('agent-mcp.query.max_rows', 100);
+
+    $reached = false;
+    DB::connection('readonly')->listen(function () use (&$reached): void {
+        $reached = true;
+    });
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => $sql])
+        ->assertHasErrors([
+            'agent-mcp.query.max_rows',
+            '100',
+        ]);
+
+    expect($reached)->toBeFalse();
+})->with([
+    'limit above the cap' => 'SELECT id FROM users LIMIT 100000',
+    'offset form with a row count above the cap' => 'SELECT id FROM users LIMIT 5, 100000000',
+    'placeholder row count' => 'SELECT id FROM users LIMIT ?',
+    'cte limit above the cap' => 'WITH r AS (SELECT id FROM users) SELECT * FROM r LIMIT 1000',
+]);
+
+it('is annotated read-only', function (): void {
+    expect(app(DbRawSelectTool::class)->toArray()['annotations'])
+        ->toHaveKey('readOnlyHint', true);
 });
 
 it('rejects every malicious input from the validator matrix with a clean error', function (string $sql): void {

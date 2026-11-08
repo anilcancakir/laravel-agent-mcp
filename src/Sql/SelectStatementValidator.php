@@ -222,6 +222,17 @@ final class SelectStatementValidator
 
             $this->assertReadOnlyStatement($inner->statements[0]);
         }
+
+        // The withers are only the CTE terms. The statement they feed is parsed
+        // separately, and read-only terms in front of a DELETE or UPDATE still
+        // make a write, which MySQL (no session read-only flag) would run.
+        $body = $statement->cteStatementParser;
+
+        if ($body === null || $body->errors !== [] || count($body->statements) !== 1) {
+            throw UnsafeQueryException::notReadOnlySelect();
+        }
+
+        $this->assertReadOnlyStatement($body->statements[0]);
     }
 
     /**

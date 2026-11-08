@@ -38,6 +38,11 @@ it('rejects an unsafe query', function (string $sql): void {
     'postgres pg_read_file' => "SELECT pg_read_file('/etc/passwd')",
     'postgres large object import' => "SELECT lo_import('/etc/passwd')",
     'data-writing cte' => 'WITH t AS (DELETE FROM x RETURNING *) SELECT * FROM t',
+    // A read-only CTE term in front of a write: the terms are SELECTs, the final
+    // statement is not. MySQL has no session read-only flag, so this is the
+    // only layer refusing it there.
+    'cte followed by delete' => 'WITH r AS (SELECT 1 AS a) DELETE FROM users',
+    'cte followed by update' => "WITH r AS (SELECT 1 AS a) UPDATE users SET name = 'x'",
     'into outfile' => "SELECT * FROM users INTO OUTFILE '/tmp/x'",
     'into dumpfile' => "SELECT * FROM users INTO DUMPFILE '/tmp/x'",
     'attach database' => "ATTACH DATABASE 'x' AS y",
