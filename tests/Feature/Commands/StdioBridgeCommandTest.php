@@ -359,6 +359,35 @@ it('fails fast to stderr with a non-zero exit and no stdout when AGENT_MCP_KEY i
     expect($errorOutput)->toContain('AGENT_MCP_KEY');
 });
 
+it('refuses a plain http AGENT_MCP_URL before it sends the Bearer key anywhere', function (string $url): void {
+    putenv('AGENT_MCP_URL='.$url);
+    Http::fake();
+
+    [$status, $stdout, $errorOutput] = runBridgeWithStreams(['{"jsonrpc":"2.0","id":1,"method":"ping"}']);
+
+    expect($status)->not->toBe(0);
+    expect($stdout)->toBe('');
+    expect($errorOutput)->toContain('AGENT_MCP_URL')->toContain('https');
+    expect($errorOutput)->not->toContain('super-secret-key-value');
+    Http::assertNothingSent();
+})->with([
+    'plain http host' => ['http://remote.test/agent-mcp'],
+    'unsupported scheme' => ['ftp://remote.test/agent-mcp'],
+    'not a url' => ['remote.test/agent-mcp'],
+]);
+
+it('still bridges to a loopback http AGENT_MCP_URL for local development', function (): void {
+    putenv('AGENT_MCP_URL=http://localhost:8000/agent-mcp');
+    Http::fake([
+        'localhost:8000/*' => Http::response('{"jsonrpc":"2.0","id":1,"result":{}}', 200),
+    ]);
+
+    [$status, $stdout] = runBridgeWithStreams(['{"jsonrpc":"2.0","id":1,"method":"ping"}']);
+
+    expect($status)->toBe(0);
+    expect($stdout)->toContain('"result"');
+});
+
 it('is registered as an artisan command by the package provider', function (): void {
     // The provider wires the command via Package::hasCommand so an operator can run
     // `php artisan agent-mcp:stdio`; without registration the bridge is unreachable.

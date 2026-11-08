@@ -2,6 +2,7 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Commands;
 
+use Anilcancakir\LaravelAgentMcp\Support\RemoteUrl;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Env;
@@ -20,7 +21,8 @@ use JsonException;
  * Security boundary:
  *   - STDOUT carries pure MCP bytes only; every diagnostic goes to STDERR.
  *   - The key travels only in the Authorization header, never on stdout/stderr.
- *   - TLS verification is always on (no withoutVerifying()).
+ *   - TLS verification is always on (no withoutVerifying()), and RemoteUrl refuses a plain
+ *     http AGENT_MCP_URL (loopback excepted) before the key is sent.
  *   - The remote URL/key are sourced from operator ENV only, never from stdin/request
  *     data, so a malicious peer cannot redirect the credential.
  */
@@ -134,7 +136,16 @@ class StdioBridgeCommand extends Command
             return self::FAILURE;
         }
 
-        // 2. Thin wrapper around the testable forward(): pump newline-delimited JSON-RPC
+        // 2. The Bearer key must never cross the wire in clear text: the same rule the CLI
+        //    applies (https, or http to loopback only). The message omits the URL's value
+        //    because a URL can embed credentials.
+        if (! RemoteUrl::valid($url)) {
+            $this->failStartup('AGENT_MCP_URL must be an https URL (plain http is allowed only for loopback).');
+
+            return self::FAILURE;
+        }
+
+        // 3. Thin wrapper around the testable forward(): pump newline-delimited JSON-RPC
         //    lines from STDIN to the remote and echo each reply. fgets returns false at EOF.
         $stream = $this->inputStream();
 
