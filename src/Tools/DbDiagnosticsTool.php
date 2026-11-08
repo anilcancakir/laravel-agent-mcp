@@ -38,7 +38,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  */
 #[Name('db_diagnostics')]
 #[Description(<<<'TEXT'
-    Database server diagnostics: slow queries (top statements by mean execution time) and active locks (blocked and blocking sessions). Use slow_queries to find the worst-performing statements before looking at index structure with db_index_health, and locks when investigating lock contention, stuck queries or deadlock symptoms.
+    Database server diagnostics: slow queries (top statements by mean execution time) and active locks (blocked and blocking sessions). Use slow_queries to find the worst-performing statements before looking at index structure with db_health, and locks when investigating lock contention, stuck queries or deadlock symptoms.
 
     - Off by default and one flag opens both sections; treat a denial as the expected default, not an error.
     - slow_queries needs pg_stat_statements (PostgreSQL) or performance_schema (MySQL); `limit` caps its statements (default 20, at most 100) and does not apply to locks.

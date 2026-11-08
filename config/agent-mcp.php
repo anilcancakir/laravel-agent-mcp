@@ -209,7 +209,7 @@ return [
     | Cache inspection settings
     |--------------------------------------------------------------------------
     |
-    | allow_value_read: when false (default) the cache_inspect tool returns only
+    | allow_value_read: when false (default) the cache tool returns only
     | metadata (TTL, type) and never the raw cached value. Set to true AND add
     | an explicit safe_list entry via config_inspect to allow value reads on
     | selected keys. Raw values may contain serialized objects or secrets; this
