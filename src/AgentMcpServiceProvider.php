@@ -10,7 +10,6 @@ use Anilcancakir\LaravelAgentMcp\Commands\ToolSchemaCommand;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\McpServiceProvider;
@@ -28,33 +27,6 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
  */
 class AgentMcpServiceProvider extends PackageServiceProvider
 {
-    /**
-     * Tool flags retired in 2.0, mapped to the tool that replaced each one and what
-     * that tool's flag opens. Used only to word the warning: these keys are never read
-     * as aliases, because a 1.x key silently gating a 2.0 tool would be a hidden shim.
-     *
-     * @var array<string, array{0: string, 1: string}>
-     */
-    private const array RETIRED_TOOL_KEYS = [
-        'list_routes' => ['routes', 'modes list and detail'],
-        'inspect_route' => ['routes', 'modes list and detail'],
-        'queue_backlog' => ['queue_status', 'sections backlog, failed, horizon'],
-        'queue_failed_jobs' => ['queue_status', 'sections backlog, failed, horizon'],
-        'horizon_status' => ['queue_status', 'sections backlog, failed, horizon'],
-        'db_index_health' => ['db_health', 'sections indexes, missing_fk, sizes'],
-        'db_missing_fk_indexes' => ['db_health', 'sections indexes, missing_fk, sizes'],
-        'db_table_sizes' => ['db_health', 'sections indexes, missing_fk, sizes'],
-        'db_slow_queries' => ['db_diagnostics', 'sections slow_queries, locks; default OFF'],
-        'db_active_locks' => ['db_diagnostics', 'sections slow_queries, locks; default OFF'],
-        'cache_status' => ['cache', 'modes status and inspect'],
-        'cache_inspect' => ['cache', 'modes status and inspect'],
-        'app_about' => ['app_info', 'sections about, schedule, events, storage, env_keys'],
-        'schedule_list' => ['app_info', 'sections about, schedule, events, storage, env_keys'],
-        'event_list' => ['app_info', 'sections about, schedule, events, storage, env_keys'],
-        'storage_info' => ['app_info', 'sections about, schedule, events, storage, env_keys'],
-        'env_keys' => ['app_info', 'sections about, schedule, events, storage, env_keys'],
-    ];
-
     public function configurePackage(Package $package): void
     {
         $package
@@ -94,10 +66,6 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         //    client config example). Console-only, matching the
         //    framework convention; the path map is lazy.
         $this->registerPublishing();
-
-        // 2b. Tell the operator about 1.x tool flags in a published config: they are
-        //     ignored now, and a disabled one no longer hides what it used to gate.
-        $this->warnAboutRetiredToolKeys();
 
         // 3. Config-gated transport registration.
         if (! config('agent-mcp.enabled') || ! config('agent-mcp.auto_register')) {
@@ -187,42 +155,6 @@ class AgentMcpServiceProvider extends PackageServiceProvider
         if (config('agent-mcp.transports.stdio')) {
             Mcp::local('agent-mcp', AgentMcpServer::class);
         }
-    }
-
-    /**
-     * Log one warning per console boot listing every retired tool key still present in
-     * agent-mcp.tools. Console only, so an operator sees it on deploy or artisan runs
-     * while HTTP requests stay quiet. The keys are reported, never honoured: the
-     * replacement flag alone governs every section the old keys used to split.
-     */
-    private function warnAboutRetiredToolKeys(): void
-    {
-        if (! $this->app->runningInConsole()) {
-            return;
-        }
-
-        $tools = config('agent-mcp.tools');
-
-        if (! is_array($tools)) {
-            return;
-        }
-
-        $notes = [];
-
-        foreach (array_intersect_key(self::RETIRED_TOOL_KEYS, $tools) as $key => [$tool, $opens]) {
-            $notes[] = "{$key} => `{$tool}` ({$opens})";
-        }
-
-        if ($notes === []) {
-            return;
-        }
-
-        Log::warning(
-            'agent-mcp: agent-mcp.tools holds keys retired in 2.0, which are ignored: '
-            .implode('; ', $notes)
-            .'. Each replacement flag now governs every listed section; set it in your published '
-            .'config/agent-mcp.php and remove the retired keys.',
-        );
     }
 
     /**

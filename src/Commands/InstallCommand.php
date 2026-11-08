@@ -6,6 +6,7 @@ use Anilcancakir\LaravelAgentMcp\Support\AgentTarget;
 use Anilcancakir\LaravelAgentMcp\Support\GuidelineInjector;
 use Anilcancakir\LaravelAgentMcp\Support\InstallMode;
 use Anilcancakir\LaravelAgentMcp\Support\RemoteUrl;
+use Anilcancakir\LaravelAgentMcp\Support\RetiredToolKeys;
 use Anilcancakir\LaravelAgentMcp\Support\SkillInstaller;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Blade;
@@ -87,6 +88,7 @@ class InstallCommand extends Command
         }
 
         $this->printDebugWarning();
+        $this->printRetiredToolKeysWarning();
 
         // 5. Inject the guideline + skill directly when boost is absent (or --inject),
         //    unless --no-inject. Otherwise defer to boost via the printed next-step.
@@ -579,6 +581,23 @@ class InstallCommand extends Command
         $this->newLine();
         $this->line('Set APP_DEBUG=false in production, or restrict the endpoint to an');
         $this->line('internal network before turning debug mode on.');
+        $this->newLine();
+    }
+
+    /**
+     * Print the retired tool key warning when a config published before 2.0 still carries
+     * old keys. vendor:publish never overwrites an existing config, so a re-run of the
+     * installer is where the operator is told; nothing is written to the application log.
+     */
+    private function printRetiredToolKeysWarning(): void
+    {
+        $warning = RetiredToolKeys::warning();
+
+        if ($warning === null) {
+            return;
+        }
+
+        $this->warn($warning);
         $this->newLine();
     }
 

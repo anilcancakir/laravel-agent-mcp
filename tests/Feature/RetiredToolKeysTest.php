@@ -1,57 +1,22 @@
 <?php
 
 use Anilcancakir\LaravelAgentMcp\AgentMcpServiceProvider;
+use Anilcancakir\LaravelAgentMcp\Support\RetiredToolKeys;
 use Anilcancakir\LaravelAgentMcp\Tools\CacheTool;
 use Illuminate\Support\Facades\Log;
 use Laravel\Mcp\Server\Registrar;
-use Mockery\MockInterface;
 use Spatie\LaravelPackageTools\Package;
 
 // A consumer's published config from 1.x still carries the 25 old tool keys. 2.0 never
-// reads them as aliases; instead a console boot logs one aggregated warning so the
-// operator learns which new flag now governs the sections the old key used to gate.
+// reads them as aliases; instead agent-mcp:install and agent-mcp:tools print one aggregated
+// warning so the operator learns which new flag now governs the sections the old key gated.
+// The warning never goes to the application log: read_logs tails that file, and a
+// warning written on every console boot would fill it.
 
-/**
- * Boot the provider again against the current config, on a clean Mcp registrar so the
- * repeated transport registration does not collide with the one from the app boot.
- */
-function bootAgentMcpProviderAgain(): void
-{
-    app()->instance(Registrar::class, new Registrar);
-
-    $provider = new AgentMcpServiceProvider(app());
-    $provider->configurePackage(new Package);
-    $provider->packageBooted();
-}
-
-/**
- * Collect every message the Log facade spy received as a warning.
- *
- * @return array<int, string>
- */
-function loggedWarnings(MockInterface $log): array
-{
-    $messages = [];
-
-    $log->shouldHaveReceived('warning')->withArgs(function (string $message) use (&$messages): bool {
-        $messages[] = $message;
-
-        return true;
-    });
-
-    return $messages;
-}
-
-it('logs one warning naming a retired key, its replacement and the sections it opens', function (): void {
-    $log = Log::spy();
+it('words one warning naming a retired key, its replacement and the sections it opens', function (): void {
     config()->set('agent-mcp.tools.cache_inspect', false);
 
-    bootAgentMcpProviderAgain();
-
-    $warnings = loggedWarnings($log);
-
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])
+    expect(RetiredToolKeys::warning())
         ->toContain('cache_inspect')
         ->toContain('`cache`')
         ->toContain('status')
@@ -59,17 +24,14 @@ it('logs one warning naming a retired key, its replacement and the sections it o
 });
 
 it('aggregates several retired keys into a single warning', function (): void {
-    $log = Log::spy();
     config()->set('agent-mcp.tools.list_routes', true);
     config()->set('agent-mcp.tools.db_slow_queries', false);
     config()->set('agent-mcp.tools.env_keys', false);
 
-    bootAgentMcpProviderAgain();
+    $warning = RetiredToolKeys::warning();
 
-    $warnings = loggedWarnings($log);
-
-    expect($warnings)->toHaveCount(1);
-    expect($warnings[0])
+    expect(substr_count((string) $warning, 'agent-mcp.tools holds keys retired in 2.0'))->toBe(1);
+    expect($warning)
         ->toContain('list_routes')
         ->toContain('`routes`')
         ->toContain('db_slow_queries')
@@ -79,27 +41,25 @@ it('aggregates several retired keys into a single warning', function (): void {
         ->toContain('`app_info`');
 });
 
-it('logs no warning when the config carries no retired key', function (): void {
-    $log = Log::spy();
-
-    bootAgentMcpProviderAgain();
-
-    $log->shouldNotHaveReceived('warning');
+it('has no warning when the config carries no retired key', function (): void {
+    expect(RetiredToolKeys::warning())->toBeNull();
 });
 
-it('logs no warning outside the console even with a retired key present', function (): void {
+it('has no warning when the tools config is not an array', function (): void {
+    config()->set('agent-mcp.tools', null);
+
+    expect(RetiredToolKeys::warning())->toBeNull();
+});
+
+it('writes nothing to the application log on boot, whatever the config holds', function (): void {
     $log = Log::spy();
     config()->set('agent-mcp.tools.cache_inspect', false);
 
-    // Testbench always runs in the console; pin the application's cached console state so
-    // the provider sees an HTTP boot. The app instance is rebuilt for every test.
-    (function (): void {
-        $this->isRunningInConsole = false;
-    })->call(app());
+    app()->instance(Registrar::class, new Registrar);
 
-    expect(app()->runningInConsole())->toBeFalse();
-
-    bootAgentMcpProviderAgain();
+    $provider = new AgentMcpServiceProvider(app());
+    $provider->configurePackage(new Package);
+    $provider->packageBooted();
 
     $log->shouldNotHaveReceived('warning');
 });

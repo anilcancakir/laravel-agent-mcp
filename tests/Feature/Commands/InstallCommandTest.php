@@ -67,6 +67,28 @@ it('records mcp mode when --mode=mcp is passed', function (): void {
     expect(InstallMode::current())->toBe('mcp');
 });
 
+it('warns about a retired tool key left in the published config', function (): void {
+    config()->set('agent-mcp.tools.cache_inspect', false);
+
+    artisan('agent-mcp:install', ['--mode' => 'mcp', '--no-inject' => true])
+        ->expectsOutputToContain('retired in 2.0, which are ignored: cache_inspect => `cache`')
+        ->assertOk();
+});
+
+it('warns about a retired tool key in cli mode too', function (): void {
+    config()->set('agent-mcp.tools.cache_inspect', false);
+
+    artisan('agent-mcp:install', ['--mode' => 'cli', '--no-inject' => true])
+        ->expectsOutputToContain('retired in 2.0, which are ignored: cache_inspect => `cache`')
+        ->assertOk();
+});
+
+it('prints no retired key warning when the config is clean', function (): void {
+    artisan('agent-mcp:install', ['--mode' => 'mcp', '--no-inject' => true])
+        ->doesntExpectOutputToContain('retired in 2.0')
+        ->assertOk();
+});
+
 it('exits non-zero for an invalid --mode', function (): void {
     artisan('agent-mcp:install', ['--mode' => 'bogus'])->assertFailed();
 });

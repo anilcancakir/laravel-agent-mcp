@@ -125,7 +125,8 @@ return [
     | replaces this whole array, so its tools list lacks db_health,
     | db_diagnostics, queue_status, cache, routes and app_info: add those keys
     | to your published file or those tools stay off. The old 1.x keys are
-    | ignored; a console boot logs a warning naming each one and its successor.
+    | ignored; agent-mcp:install and agent-mcp:tools print a warning naming
+    | each one and its successor.
     |
     | run_artisan is OFF by default: executing artisan commands is a high-risk
     | surface (confused-deputy, destructive commands). Enable it deliberately

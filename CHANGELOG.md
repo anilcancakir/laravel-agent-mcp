@@ -87,7 +87,7 @@ A published `config/agent-mcp.php` replaces the whole `tools` array, because the
 ],
 ```
 
-The retired 1.x keys are ignored. A console boot logs one warning naming each retired key still present, the tool that replaced it and the sections that flag opens. Other callers to update: `db_raw_select` now returns `{rows, truncated?}` instead of a bare list, `migrations_status` has no `ran` list, and `app_info` `about` takes `parts` instead of `sections`.
+The retired 1.x keys are ignored. `agent-mcp:install` and `agent-mcp:tools` print one warning naming each retired key still present, the tool that replaced it and the sections that flag opens (on stderr for `agent-mcp:tools`, so its JSON stays clean); nothing is written to the application log. Other callers to update: `db_raw_select` now returns `{rows, truncated?}` instead of a bare list, `migrations_status` has no `ran` list, and `app_info` `about` takes `parts` instead of `sections`.
 
 ## 1.2.0 - 2026-09-14
 
