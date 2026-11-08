@@ -2,7 +2,6 @@
 
 use Anilcancakir\LaravelAgentMcp\Support\GuidelineInjector;
 use Illuminate\Support\Facades\File;
-use RuntimeException;
 
 // GuidelineInjector mutates user-owned instruction files (CLAUDE.md, AGENTS.md, ...).
 // It is a data-loss surface: it must never corrupt content outside its own marker
