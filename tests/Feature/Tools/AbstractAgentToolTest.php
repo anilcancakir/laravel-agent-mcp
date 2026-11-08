@@ -77,6 +77,76 @@ it('runs tool output through the redactor before returning', function (): void {
         ->assertDontSee('secret@example.com');
 });
 
+it('answers with compact json that keeps slashes and unicode readable', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned'])
+        ->assertOk()
+        ->assertSee('{"section":"summary","path":"app/Models/User.php","note":"café","contact":""}');
+});
+
+it('redacts string leaves of the json payload before encoding', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+    config()->set('agent-mcp.redaction.enabled', true);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'leak' => 'secret@example.com'])
+        ->assertOk()
+        ->assertSee('[REDACTED]')
+        ->assertDontSee('secret@example.com');
+});
+
+it('defaults a missing section to the first valid one', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned'])
+        ->assertOk()
+        ->assertSee('"section":"summary"');
+});
+
+it('accepts a valid non-default section', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'section' => 'raw_rows'])
+        ->assertOk()
+        ->assertSee('"section":"raw_rows"');
+});
+
+it('rejects an invalid section with a message naming every valid section but not the submitted value', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'section' => 'bogus'])
+        ->assertHasErrors()
+        ->assertSee('summary')
+        ->assertSee('detail')
+        ->assertSee('raw_rows')
+        ->assertDontSee('bogus');
+});
+
+it('rejects an empty section string with the same message', function (): void {
+    config()->set('agent-mcp.audit.enabled', false);
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'section' => ''])
+        ->assertHasErrors()
+        ->assertSee('raw_rows');
+});
+
+it('audits the resolved section next to the argument shape', function (): void {
+    $captured = null;
+
+    Log::shouldReceive('channel')->with('agent-mcp-audit')->once()->andReturnSelf();
+    Log::shouldReceive('info')->once()->withArgs(function (string $message, array $context) use (&$captured): bool {
+        $captured = $context;
+
+        return $message === 'mcp.tool_invoked';
+    });
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'section' => 'detail'])
+        ->assertOk();
+
+    expect($captured['section'])->toBe('detail');
+    expect($captured['arg_shape'])->toBe(['mode' => 'string', 'section' => 'string']);
+});
+
 it('hides the tool via shouldRegister when disabled in config (best-effort UX)', function (): void {
     config()->set('agent-mcp.tools.stub-agent-tool', false);
 

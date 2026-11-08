@@ -6,6 +6,8 @@ use Anilcancakir\LaravelAgentMcp\Auditing\AuditLogger;
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Database\Connection;
+use Illuminate\Validation\Rule;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
 
@@ -83,10 +85,57 @@ abstract class AbstractAgentTool extends Tool
      * @param  array<string, string>  $argShape  Argument shape map (key => type),
      *                                           never raw values; derive it with
      *                                           argumentShape().
+     * @param  string|null  $section  The section a merged tool resolved, from requestedSection().
      */
-    protected function audit(array $argShape): void
+    protected function audit(array $argShape, ?string $section = null): void
     {
-        $this->auditLogger->record($this->name(), $argShape);
+        $this->auditLogger->record($this->name(), $argShape, $section);
+    }
+
+    /**
+     * Resolve the section a merged tool should run. laravel/mcp neither enforces a
+     * schema enum nor applies its default, so the handler validates here: a missing
+     * section falls back to the first (default) one, anything else must be listed.
+     * The message names the valid values and never echoes the submitted one.
+     *
+     * @param  non-empty-array<int, string>  $sections  Valid names, default first.
+     */
+    protected function requestedSection(Request $request, array $sections): string
+    {
+        $section = $request->get('section');
+
+        if ($section === null) {
+            return $sections[0];
+        }
+
+        $message = 'The section must be one of: '.implode(', ', $sections).'.';
+
+        $validated = $request->validate(
+            ['section' => ['required', 'string', Rule::in($sections)]],
+            [
+                'section.required' => $message,
+                'section.string' => $message,
+                'section.in' => $message,
+            ],
+        );
+
+        return $validated['section'];
+    }
+
+    /**
+     * Redact then encode a payload as compact JSON, the single output shape of the
+     * JSON tools: no pretty-printing (whitespace costs agent tokens), slashes and
+     * unicode left readable, and a failed encode throws instead of returning '{}'.
+     *
+     * @param  array<mixed>  $payload
+     */
+    protected function jsonResponse(array $payload): Response
+    {
+        $redacted = $this->redactor()->redactArray($payload);
+
+        return Response::text(
+            json_encode($redacted, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+        );
     }
 
     /**

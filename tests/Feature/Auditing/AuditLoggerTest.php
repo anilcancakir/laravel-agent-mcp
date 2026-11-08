@@ -30,6 +30,24 @@ it('records tool name, arg shape, and a timestamp to the audit channel', functio
     expect($loggedContext)->toHaveKey('timestamp');
 });
 
+it('records the section when one is given and omits the key otherwise', function (): void {
+    $contexts = [];
+
+    Log::shouldReceive('channel')->with('agent-mcp-audit')->twice()->andReturnSelf();
+    Log::shouldReceive('info')->twice()->withArgs(function (string $message, array $context) use (&$contexts): bool {
+        $contexts[] = $context;
+
+        return $message === 'mcp.tool_invoked';
+    });
+
+    $logger = new AuditLogger;
+    $logger->record(tool: 'db_schema', argShape: ['section' => 'string'], section: 'columns');
+    $logger->record(tool: 'db_schema', argShape: ['table' => 'string']);
+
+    expect($contexts[0]['section'])->toBe('columns');
+    expect($contexts[1])->not()->toHaveKey('section');
+});
+
 it('never records a caller identity or token under the single-key model', function (): void {
     $loggedContext = null;
 
