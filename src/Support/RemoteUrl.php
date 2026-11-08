@@ -13,8 +13,8 @@ namespace Anilcancakir\LaravelAgentMcp\Support;
  * local dev server commonly speaks plain http.
  *
  * This validator is the ONE place that rule lives. InstallMode (write/read),
- * RemoteToolClient (the POST guard), and InstallCommand (the --url option) all
- * delegate here so the rule cannot drift between intake and send. It is a pure
+ * RemoteToolClient (the POST guard), InstallCommand (the --url option), and
+ * StdioBridgeCommand (the startup check) all delegate here so the rule cannot drift between intake and send. It is a pure
  * boolean function of its argument: no env reads, no file reads, no rewriting.
  */
 final class RemoteUrl
