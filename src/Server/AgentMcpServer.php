@@ -35,24 +35,32 @@ use Laravel\Mcp\Server\Tool;
 #[Name('agent-mcp')]
 #[Version('2.0.0')]
 #[Instructions(<<<'MARKDOWN'
-    Read-only access to this Laravel application for an authenticated agent.
+    Read-only inspection of this Laravel application: database, queue, cache, routes, app info and logs.
+    Search for these tools when a task needs live data from the running app instead of a guess from the code.
 
-    Before writing any query, call db_schema to learn the tables and columns.
-    Use db_query for structured reads and db_raw_select for ad-hoc SELECTs.
-    On errors or 500s, call read_logs immediately. run_artisan is available only
-    when explicitly enabled and allowlisted by the operator.
+    Database: call `db_schema` before any query, because it lists the real tables, columns, indexes and
+    foreign keys. Then use `db_query` for a structured read of one table and `db_raw_select` for an
+    ad-hoc SELECT with joins or aggregates. `migrations_status` shows which migrations ran, and
+    `db_health` covers table sizes, index health and missing foreign keys.
 
-    Investigation domains (operator opt-in per tool):
-    - Queue health: queue_backlog, queue_failed_jobs, horizon_status
-    - Database health: db_index_health, db_missing_fk_indexes, db_table_sizes,
-      migrations_status, db_slow_queries (OFF), db_active_locks (OFF)
-    - Cache: cache_status, cache_inspect, cache_keys (OFF)
-    - App introspection: list_routes, inspect_route, app_about, schedule_list,
-      event_list, env_keys, storage_info, config_inspect (OFF)
+    Logs: call `read_logs` as soon as a request fails or a 500 appears, because the stack trace is
+    there.
 
-    All access is read-only at the database grant level; never assume a write will
-    succeed. Results may be redacted as a best-effort secret filter. Sensitive tools
-    are OFF by default and must be explicitly enabled by the operator.
+    Queue: `queue_status` covers the backlog, failed jobs and Horizon.
+
+    Cache: `cache` reports the store status and inspects one entry when given a key.
+
+    Routes: `routes` lists the routes, or returns one route by name or uri.
+
+    App info: `app_info` covers the about summary, env keys, storage, the schedule and events.
+
+    A tool with sections uses its first section when none is given, and an unknown section is refused
+    with the list of valid ones. Capped answers carry truncated when rows or lines were cut.
+
+    All access is read-only at the connection level, so a write never succeeds. Output is redacted as a
+    best-effort secret filter, so a redacted value is no proof the data is absent. These tools are off
+    until the operator enables them: `run_artisan`, `db_diagnostics` (slow queries, locks), `cache_keys`
+    and `config_inspect`.
     MARKDOWN)]
 class AgentMcpServer extends Server
 {

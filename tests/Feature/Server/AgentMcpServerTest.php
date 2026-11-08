@@ -16,6 +16,7 @@ use Anilcancakir\LaravelAgentMcp\Tools\QueueStatusTool;
 use Anilcancakir\LaravelAgentMcp\Tools\ReadLogsTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RoutesTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
+use Laravel\Mcp\Server\Attributes\Instructions;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Mcp\Server\Transport\FakeTransporter;
 use Spatie\LaravelPackageTools\Package;
@@ -76,6 +77,25 @@ it('gives every rostered tool its own config flag', function (): void {
     $names = array_map(static fn (string $tool): string => app($tool)->name(), $tools);
 
     expect($names)->toEqualCanonicalizing(array_keys(config('agent-mcp.tools')));
+});
+
+it('keeps the instructions short and names every rostered tool as a whole backtick token', function (): void {
+    // Claude Code truncates server instructions (4,096 characters, older builds 2,048), and
+    // with deferred tool loading they are what tells the model when to search for a tool.
+    $attributes = (new ReflectionClass(AgentMcpServer::class))->getAttributes(Instructions::class);
+    $instructions = $attributes[0]->newInstance()->value;
+
+    expect(strlen($instructions))->toBeLessThanOrEqual(1800);
+
+    $tools = (function (): array {
+        return $this->tools;
+    })->call(new AgentMcpServer(new FakeTransporter));
+
+    foreach ($tools as $tool) {
+        $name = app($tool)->name();
+
+        expect($instructions)->toContain('`'.$name.'`');
+    }
 });
 
 it('hides a default-OFF tool via shouldRegister when its config flag is false', function (): void {
