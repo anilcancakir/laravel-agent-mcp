@@ -119,6 +119,13 @@ return [
     | Per-tool on/off switches evaluated at boot (shouldRegister) and enforced
     | authoritatively in handle(). Disabling a tool here hides it from the MCP
     | tool list and causes handle() to return a denial before doing any work.
+    | A tool with several sections has one flag that opens all of them.
+    |
+    | A missing key means OFF (fail-closed). A config published before 2.0
+    | replaces this whole array, so its tools list lacks db_health,
+    | db_diagnostics, queue_status, cache, routes and app_info: add those keys
+    | to your published file or those tools stay off. The old 1.x keys are
+    | ignored; a console boot logs a warning naming each one and its successor.
     |
     | run_artisan is OFF by default: executing artisan commands is a high-risk
     | surface (confused-deputy, destructive commands). Enable it deliberately
@@ -140,42 +147,34 @@ return [
 
         // --- Investigation tools ---
 
-        // Queue: queue sizes + failed-job summaries are safe read-only reads.
-        'queue_backlog' => true,
-        'queue_failed_jobs' => true,
-
-        // Horizon: availability-gated; inert when Horizon is not installed.
-        'horizon_status' => true,
-
-        // Database health: catalog reads over the readonly connection.
-        'db_index_health' => true,
-        'db_missing_fk_indexes' => true,
-        'db_table_sizes' => true,
+        // Database health: catalog reads over the readonly connection
+        // (db_health sections indexes, missing_fk, sizes).
         'migrations_status' => true,
+        'db_health' => true,
 
-        // Privileged DB tools: require pg_monitor/pg_read_all_stats (PostgreSQL)
-        // or performance_schema access (MySQL). Disabled by default so the
-        // operator explicitly grants the necessary DB privileges before enabling.
-        'db_slow_queries' => false,
-        'db_active_locks' => false,
+        // Privileged DB reads (sections slow_queries, locks): require
+        // pg_monitor/pg_read_all_stats (PostgreSQL) or performance_schema access
+        // (MySQL). Disabled by default so the operator explicitly grants the
+        // necessary DB privileges before enabling.
+        'db_diagnostics' => false,
 
-        // Cache: metadata reads (status, key inspection) are safe by default.
-        'cache_status' => true,
-        'cache_inspect' => true,
+        // Queue: backlog sizes, failed-job summaries and Horizon state (inert
+        // when Horizon is not installed).
+        'queue_status' => true,
+
+        // Cache: store status and single-key metadata inspection.
+        'cache' => true,
 
         // cache_keys can expose live session IDs when the session and cache share
         // a Redis store. Disabled by default; enable only after verifying the
         // session prefix exclusion covers your deployment.
         'cache_keys' => false,
 
-        // App introspection: read-only framework-level reflection.
-        'list_routes' => true,
-        'inspect_route' => true,
-        'app_about' => true,
-        'schedule_list' => true,
-        'event_list' => true,
-        'storage_info' => true,
-        'env_keys' => true,
+        // App introspection: read-only framework-level reflection (routes list
+        // and detail; app_info sections about, schedule, events, storage,
+        // env_keys).
+        'routes' => true,
+        'app_info' => true,
 
         // config_inspect returns arbitrary application config values and can
         // expose secrets not covered by the block_list. Disabled by default;
@@ -279,7 +278,7 @@ return [
     */
 
     'query' => [
-        'max_rows' => (int) env('AGENT_MCP_MAX_ROWS', 100),
+        'max_rows' => (int) env('AGENT_MCP_MAX_ROWS', 50),
         'statement_timeout_ms' => (int) env('AGENT_MCP_STATEMENT_TIMEOUT_MS', 5000),
     ],
 
@@ -297,7 +296,7 @@ return [
 
     'logs' => [
         'channel' => env('AGENT_MCP_LOG_CHANNEL'),
-        'max_lines' => (int) env('AGENT_MCP_LOG_MAX_LINES', 200),
+        'max_lines' => (int) env('AGENT_MCP_LOG_MAX_LINES', 100),
     ],
 
     /*

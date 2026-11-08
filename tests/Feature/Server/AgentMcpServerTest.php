@@ -2,31 +2,20 @@
 
 use Anilcancakir\LaravelAgentMcp\AgentMcpServiceProvider;
 use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
-use Anilcancakir\LaravelAgentMcp\Tools\AppAboutTool;
-use Anilcancakir\LaravelAgentMcp\Tools\CacheInspectTool;
+use Anilcancakir\LaravelAgentMcp\Tools\AppInfoTool;
 use Anilcancakir\LaravelAgentMcp\Tools\CacheKeysTool;
-use Anilcancakir\LaravelAgentMcp\Tools\CacheStatusTool;
+use Anilcancakir\LaravelAgentMcp\Tools\CacheTool;
 use Anilcancakir\LaravelAgentMcp\Tools\ConfigInspectTool;
-use Anilcancakir\LaravelAgentMcp\Tools\DbActiveLocksTool;
-use Anilcancakir\LaravelAgentMcp\Tools\DbIndexHealthTool;
-use Anilcancakir\LaravelAgentMcp\Tools\DbMissingFkIndexesTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbDiagnosticsTool;
+use Anilcancakir\LaravelAgentMcp\Tools\DbHealthTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbQueryTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;
 use Anilcancakir\LaravelAgentMcp\Tools\DbSchemaTool;
-use Anilcancakir\LaravelAgentMcp\Tools\DbSlowQueriesTool;
-use Anilcancakir\LaravelAgentMcp\Tools\DbTableSizesTool;
-use Anilcancakir\LaravelAgentMcp\Tools\EnvKeysTool;
-use Anilcancakir\LaravelAgentMcp\Tools\EventListTool;
-use Anilcancakir\LaravelAgentMcp\Tools\HorizonStatusTool;
-use Anilcancakir\LaravelAgentMcp\Tools\InspectRouteTool;
-use Anilcancakir\LaravelAgentMcp\Tools\ListRoutesTool;
 use Anilcancakir\LaravelAgentMcp\Tools\MigrationsStatusTool;
-use Anilcancakir\LaravelAgentMcp\Tools\QueueBacklogTool;
-use Anilcancakir\LaravelAgentMcp\Tools\QueueFailedJobsTool;
+use Anilcancakir\LaravelAgentMcp\Tools\QueueStatusTool;
 use Anilcancakir\LaravelAgentMcp\Tools\ReadLogsTool;
+use Anilcancakir\LaravelAgentMcp\Tools\RoutesTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
-use Anilcancakir\LaravelAgentMcp\Tools\ScheduleListTool;
-use Anilcancakir\LaravelAgentMcp\Tools\StorageInfoTool;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Mcp\Server\Transport\FakeTransporter;
 use Spatie\LaravelPackageTools\Package;
@@ -67,27 +56,26 @@ it('declares all package tools on the server', function (): void {
         DbRawSelectTool::class,
         ReadLogsTool::class,
         RunArtisanTool::class,
-        QueueBacklogTool::class,
-        QueueFailedJobsTool::class,
-        HorizonStatusTool::class,
-        DbIndexHealthTool::class,
-        DbMissingFkIndexesTool::class,
-        DbTableSizesTool::class,
-        DbSlowQueriesTool::class,
-        DbActiveLocksTool::class,
         MigrationsStatusTool::class,
-        CacheStatusTool::class,
-        CacheInspectTool::class,
+        DbHealthTool::class,
+        DbDiagnosticsTool::class,
+        QueueStatusTool::class,
+        CacheTool::class,
         CacheKeysTool::class,
-        ListRoutesTool::class,
-        InspectRouteTool::class,
-        AppAboutTool::class,
-        ScheduleListTool::class,
-        EventListTool::class,
+        RoutesTool::class,
+        AppInfoTool::class,
         ConfigInspectTool::class,
-        EnvKeysTool::class,
-        StorageInfoTool::class,
     ]);
+});
+
+it('gives every rostered tool its own config flag', function (): void {
+    $tools = (function (): array {
+        return $this->tools;
+    })->call(new AgentMcpServer(new FakeTransporter));
+
+    $names = array_map(static fn (string $tool): string => app($tool)->name(), $tools);
+
+    expect($names)->toEqualCanonicalizing(array_keys(config('agent-mcp.tools')));
 });
 
 it('hides a default-OFF tool via shouldRegister when its config flag is false', function (): void {
@@ -99,9 +87,9 @@ it('hides a default-OFF tool via shouldRegister when its config flag is false', 
 });
 
 it('shows a default-ON tool via shouldRegister when its config flag is true', function (): void {
-    config()->set('agent-mcp.tools.list_routes', true);
+    config()->set('agent-mcp.tools.routes', true);
 
-    $tool = app(ListRoutesTool::class);
+    $tool = app(RoutesTool::class);
 
     expect($tool->shouldRegister())->toBeTrue();
 });
@@ -156,7 +144,18 @@ it('lists the enabled tools for a request carrying the correct Bearer key', func
     $tools = $response->json('result.tools');
     $names = array_map(static fn (array $tool): mixed => $tool['name'] ?? null, $tools);
 
-    expect($names)->toContain('db_schema', 'db_query', 'db_raw_select', 'read_logs');
+    expect($names)->toEqualCanonicalizing([
+        'db_schema',
+        'db_query',
+        'db_raw_select',
+        'read_logs',
+        'migrations_status',
+        'db_health',
+        'queue_status',
+        'cache',
+        'routes',
+        'app_info',
+    ]);
 });
 
 it('registers no MCP route when auto_register is false', function (): void {
