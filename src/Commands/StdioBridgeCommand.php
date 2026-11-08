@@ -40,6 +40,18 @@ class StdioBridgeCommand extends Command
     private const PROTOCOL_VERSION = '2025-06-18';
 
     /**
+     * The _meta key a client uses to declare its protocol version on a non-legacy request.
+     * laravel/mcp 1.x requires the matching header to equal it, so the bridge forwards it.
+     */
+    private const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
+
+    /**
+     * A header value limited to printable ASCII with no leading or trailing blank. Anything
+     * else (a control character, CR/LF) is never copied from stdin into a header.
+     */
+    private const HEADER_SAFE_VALUE = '/^[\x21-\x7E]([\x20-\x7E\x09]*[\x21-\x7E])?\z/';
+
+    /**
      * The STDIN stream the loop reads JSON-RPC lines from. Defaults to STDIN; tests
      * inject an in-memory stream so the per-message forward is exercisable without a tty.
      *
@@ -148,7 +160,7 @@ class StdioBridgeCommand extends Command
     public function forward(string $jsonRpcLine, string $url, string $key): string
     {
         try {
-            $response = Http::withHeaders($this->forwardHeaders($key))
+            $response = Http::withHeaders($this->forwardHeaders($key, $jsonRpcLine))
                 ->withBody($jsonRpcLine, 'application/json')
                 ->post($url);
         } catch (ConnectionException $exception) {
@@ -179,11 +191,12 @@ class StdioBridgeCommand extends Command
     /**
      * Build the Streamable HTTP headers for a forwarded request. Authorization uses the
      * configured key_header name for symmetry with the server side (default Authorization,
-     * always Bearer-prefixed). Mcp-Session-Id is attached only once the remote has issued one.
+     * always Bearer-prefixed). Mcp-Session-Id is attached only once the remote has issued one
+     * (laravel/mcp 0.x; 1.x has no sessions). The mirrored headers come from the forwarded line.
      *
      * @return array<string, string>
      */
-    private function forwardHeaders(string $key): array
+    private function forwardHeaders(string $key, string $jsonRpcLine): array
     {
         $keyHeader = config('agent-mcp.key_header', 'Authorization');
         $keyHeader = is_string($keyHeader) && $keyHeader !== '' ? $keyHeader : 'Authorization';
@@ -199,7 +212,45 @@ class StdioBridgeCommand extends Command
             $headers['Mcp-Session-Id'] = $this->sessionId;
         }
 
-        return $headers;
+        return [...$headers, ...$this->mirroredHeaders($jsonRpcLine)];
+    }
+
+    /**
+     * Headers laravel/mcp 1.x checks against the request body: the method, the tool name of a
+     * tools/call (or prompt name, or resource uri), and the protocol version a client negotiates
+     * in _meta. The bridge is a transparent relay, so they are derived from the forwarded line
+     * and never fixed. Older servers ignore them. A value that is not plain header-safe text is
+     * skipped, because the line comes from stdin and must not shape the HTTP request.
+     *
+     * @return array<string, string>
+     */
+    private function mirroredHeaders(string $jsonRpcLine): array
+    {
+        $message = json_decode($jsonRpcLine, true);
+
+        if (! is_array($message) || ! is_string($message['method'] ?? null)) {
+            return [];
+        }
+
+        $params = is_array($message['params'] ?? null) ? $message['params'] : [];
+        $meta = is_array($params['_meta'] ?? null) ? $params['_meta'] : [];
+
+        $name = match ($message['method']) {
+            'tools/call', 'prompts/get' => $params['name'] ?? null,
+            'resources/read' => $params['uri'] ?? null,
+            default => null,
+        };
+
+        $candidates = [
+            'Mcp-Method' => $message['method'],
+            'Mcp-Name' => $name,
+            'MCP-Protocol-Version' => $meta[self::PROTOCOL_VERSION_META_KEY] ?? null,
+        ];
+
+        return array_filter(
+            $candidates,
+            static fn (mixed $value): bool => is_string($value) && preg_match(self::HEADER_SAFE_VALUE, $value) === 1,
+        );
     }
 
     /**
