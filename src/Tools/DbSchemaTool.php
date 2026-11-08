@@ -8,6 +8,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool: db_schema
@@ -29,14 +30,13 @@ use Laravel\Mcp\Server\Attributes\Name;
  */
 #[Name('db_schema')]
 #[Description(<<<'TEXT'
-    Inspect the live database schema on the read-only connection. Returns the real tables and columns, not what model or migration files imply.
+    Database schema: tables, columns, indexes and foreign keys as they are in the live database, not as model or migration files imply.
 
-    Usage:
-    - Call this BEFORE writing any db_query or db_raw_select, and whenever you hit an unknown table or column. The running schema can differ from the code.
-    - Omit `table` to list every table with its size. Provide `table` to get that table's columns, indexes, and foreign keys.
-    - An unknown table name is rejected with a clean error, so confirm exact names here first.
-    - Read-only and safe to call often. Output is redacted as a best-effort secret filter.
+    - Call it before db_query or db_raw_select, and on any unknown table or column error, because the running schema can differ from the code.
+    - Omit `table` to list every table with its size; give `table` for its columns, indexes and foreign keys.
+    - An unknown table name is rejected, so confirm exact names with the list first.
     TEXT)]
+#[IsReadOnly]
 class DbSchemaTool extends AbstractAgentTool
 {
     /**
@@ -80,11 +80,7 @@ class DbSchemaTool extends AbstractAgentTool
 
         $tables = Schema::connection($connectionName)->getTables();
 
-        $redacted = $this->redactor()->redactArray(
-            array_map(fn (array $t): array => $t, $tables),
-        );
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '[]');
+        return $this->jsonResponse($tables);
     }
 
     /**
@@ -108,15 +104,11 @@ class DbSchemaTool extends AbstractAgentTool
         $indexes = Schema::connection($connectionName)->getIndexes($table);
         $foreignKeys = Schema::connection($connectionName)->getForeignKeys($table);
 
-        $result = [
+        return $this->jsonResponse([
             'table' => $table,
             'columns' => $columns,
             'indexes' => $indexes,
             'foreign_keys' => $foreignKeys,
-        ];
-
-        $redacted = $this->redactor()->redactArray($result);
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
+        ]);
     }
 }

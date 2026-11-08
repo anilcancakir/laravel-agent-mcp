@@ -9,6 +9,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool `db_query`: structured, bound, read-only queries over the hardened
@@ -31,10 +32,11 @@ use Laravel\Mcp\Server\Attributes\Name;
 
     Usage:
     - Confirm the table and columns with db_schema first; unknown tables, columns, or operators are rejected before any query runs.
-    - `query_type` selects the shape: find returns one row by id, where returns a filtered list, count returns an integer.
+    - `query_type` selects the shape: find returns one row by id, where (the default) returns a filtered list, count returns an integer.
     - Condition values are always bound as parameters, never concatenated into SQL.
-    - Results are capped at agent-mcp.query.max_rows and redacted. This is read-only; no write ever succeeds.
+    - A where list is capped at agent-mcp.query.max_rows and carries truncated true when rows were cut; output is redacted.
     TEXT)]
+#[IsReadOnly]
 class DbQueryTool extends AbstractAgentTool
 {
     /**
@@ -46,6 +48,17 @@ class DbQueryTool extends AbstractAgentTool
     private const ALLOWED_OPERATORS = ['=', '!=', '<', '>', '<=', '>=', 'like', 'in'];
 
     /**
+     * The query shapes handle() routes to.
+     *
+     * @var array<int, string>
+     */
+    private const QUERY_TYPES = [
+        'find',
+        'where',
+        'count',
+    ];
+
+    /**
      * @return array<string, mixed>
      */
     public function schema(JsonSchema $schema): array
@@ -54,9 +67,8 @@ class DbQueryTool extends AbstractAgentTool
             'table' => $schema->string()->required()->description('Table to query.'),
 
             'query_type' => $schema->string()
-                ->enum(['find', 'where', 'count'])
-                ->required()
-                ->description('find returns one row by id; where returns a filtered list; count returns an integer.'),
+                ->enum(self::QUERY_TYPES)
+                ->description('find returns one row by id; where (default) returns a filtered list; count returns an integer.'),
 
             'id' => $schema->integer()
                 ->nullable()
@@ -97,14 +109,19 @@ class DbQueryTool extends AbstractAgentTool
         $table = (string) $request->get('table', '');
         $queryType = (string) $request->get('query_type', 'where');
 
-        // 2. Validate table exists on the readonly connection.
+        // 2. An unknown shape is refused rather than run as a where query the agent never asked for.
+        if (! in_array($queryType, self::QUERY_TYPES, true)) {
+            return Response::error('Unknown query_type. Use one of: '.implode(', ', self::QUERY_TYPES).'.');
+        }
+
+        // 3. Validate table exists on the readonly connection.
         $validationError = $this->validateTable($table);
 
         if ($validationError !== null) {
             return $validationError;
         }
 
-        // 3. Validate and normalize the conditions array.
+        // 4. Validate and normalize the conditions array.
         /** @var array<int, mixed>|null $rawConditions */
         $rawConditions = $request->get('conditions');
         $conditions = is_array($rawConditions) ? $rawConditions : [];
@@ -115,7 +132,7 @@ class DbQueryTool extends AbstractAgentTool
             return $conditionError;
         }
 
-        // 4. Validate the select columns when provided.
+        // 5. Validate the select columns when provided.
         /** @var array<int, string>|null $selectColumns */
         $selectColumns = $request->get('select');
 
@@ -127,7 +144,7 @@ class DbQueryTool extends AbstractAgentTool
             }
         }
 
-        // 5. Validate order_by column when provided.
+        // 6. Validate order_by column when provided.
         $orderBy = $request->get('order_by');
         $orderBy = is_string($orderBy) && $orderBy !== '' ? $orderBy : null;
 
@@ -139,19 +156,19 @@ class DbQueryTool extends AbstractAgentTool
             }
         }
 
-        // 6. Clamp limit to max_rows.
-        $maxRows = (int) config('agent-mcp.query.max_rows', 100);
+        // 7. Clamp limit to [1, max_rows]; the builder ignores a negative limit, which would lift the cap.
+        $maxRows = (int) config('agent-mcp.query.max_rows', 50);
         $requestedLimit = $request->get('limit');
-        $limit = is_numeric($requestedLimit) ? min((int) $requestedLimit, $maxRows) : $maxRows;
+        $limit = max(1, min(is_numeric($requestedLimit) ? (int) $requestedLimit : $maxRows, $maxRows));
 
         $orderDir = $request->get('order_dir');
         $orderDir = in_array($orderDir, ['asc', 'desc'], true) ? $orderDir : 'asc';
 
-        // 7. Route to the appropriate query_type handler.
+        // 8. Route to the appropriate query_type handler.
         return match ($queryType) {
             'find' => $this->runFind($table, $request, $selectColumns),
             'count' => $this->runCount($table, $conditions),
-            default => $this->runWhere($table, $conditions, $selectColumns, $limit, $orderBy, $orderDir),
+            'where' => $this->runWhere($table, $conditions, $selectColumns, $limit, $orderBy, $orderDir),
         };
     }
 
@@ -176,10 +193,9 @@ class DbQueryTool extends AbstractAgentTool
         // PDO binding: ->find() passes the value through a parameterized where clause.
         $row = $query->find($id);
 
-        $payload = $row === null ? null : (array) $row;
-        $redacted = $payload === null ? null : $this->redactor()->redactArray([$payload])[0] ?? null;
-
-        return Response::text(json_encode(['row' => $redacted], JSON_UNESCAPED_UNICODE) ?: '{}');
+        return $this->jsonResponse([
+            'row' => $row === null ? null : (array) $row,
+        ]);
     }
 
     /**
@@ -190,9 +206,9 @@ class DbQueryTool extends AbstractAgentTool
         $query = $this->readonly()->table($table);
         $query = $this->applyConditions($query, $conditions);
 
-        $count = $query->count();
-
-        return Response::text(json_encode(['count' => $count], JSON_UNESCAPED_UNICODE) ?: '{}');
+        return $this->jsonResponse([
+            'count' => $query->count(),
+        ]);
     }
 
     /**
@@ -214,16 +230,25 @@ class DbQueryTool extends AbstractAgentTool
         }
 
         $query = $this->applyConditions($query, $conditions);
-        $query = $query->limit($limit);
+
+        // One row beyond the cap tells a cut result from one that fitted exactly.
+        $query = $query->limit($limit + 1);
 
         if ($orderBy !== null) {
             $query = $query->orderBy($orderBy, $orderDir);
         }
 
         $rows = $query->get()->map(fn (mixed $row): array => (array) $row)->all();
-        $redacted = $this->redactor()->redactArray($rows);
 
-        return Response::text(json_encode(['rows' => $redacted], JSON_UNESCAPED_UNICODE) ?: '{}');
+        $payload = [
+            'rows' => array_slice($rows, 0, $limit),
+        ];
+
+        if (count($rows) > $limit) {
+            $payload['truncated'] = true;
+        }
+
+        return $this->jsonResponse($payload);
     }
 
     // -------------------------------------------------------------------------

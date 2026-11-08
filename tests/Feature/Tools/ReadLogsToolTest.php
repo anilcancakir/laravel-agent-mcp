@@ -88,6 +88,36 @@ it('clamps the requested line count to the configured maximum', function (): voi
         ->assertDontSee('line 17');
 });
 
+it('prefixes a truncated note when older lines were cut', function (): void {
+    config()->set('agent-mcp.logs.max_lines', 3);
+
+    $lines = [];
+    for ($i = 1; $i <= 20; $i++) {
+        $lines[] = "[2026-05-30 10:00:{$i}] testing.INFO: line {$i}";
+    }
+    writeReadLogsFixture($lines);
+
+    StubReadLogsServer::tool(ReadLogsTool::class, ['lines' => 3])
+        ->assertOk()
+        ->assertSee(['(truncated: showing the last 3 lines)', 'line 20', 'line 18'])
+        ->assertDontSee('line 17');
+});
+
+it('omits the truncated note when every matching line fits', function (): void {
+    config()->set('agent-mcp.logs.max_lines', 3);
+
+    $lines = [];
+    for ($i = 1; $i <= 3; $i++) {
+        $lines[] = "[2026-05-30 10:00:{$i}] testing.INFO: line {$i}";
+    }
+    writeReadLogsFixture($lines);
+
+    StubReadLogsServer::tool(ReadLogsTool::class, ['lines' => 3])
+        ->assertOk()
+        ->assertSee(['line 1', 'line 3'])
+        ->assertDontSee('truncated');
+});
+
 it('filters lines by the requested level', function (): void {
     writeReadLogsFixture([
         '[2026-05-30 10:00:01] testing.INFO: just info',

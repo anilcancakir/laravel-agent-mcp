@@ -11,6 +11,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool: migrations_status
@@ -19,7 +20,7 @@ use Laravel\Mcp\Server\Attributes\Name;
  * migrations table over the hardened readonly connection. It deliberately does
  * NOT read the filesystem migration files: detecting PENDING migrations requires
  * enumerating the on-disk migration directory, which is outside this read-only
- * catalog tool's contract. Instead the tool reports the ran list and flags pending
+ * catalog tool's contract. Instead the tool reports the ran migrations by batch and flags pending
  * detection as {pending_detection:'filesystem_required'} so the caller knows the
  * gap is intentional, not a missing feature.
  *
@@ -29,13 +30,12 @@ use Laravel\Mcp\Server\Attributes\Name;
  */
 #[Name('migrations_status')]
 #[Description(<<<'TEXT'
-    Report which migrations have run, grouped by batch, from the migrations table. Use it to confirm a migration ran or to read the batch history.
+    Migration status: which migrations ran and in which batch, read from the migrations table. Use it to confirm a migration ran or to read the batch history.
 
-    Usage:
-    - Takes no arguments.
-    - Reports the ran list and batch numbers only. Detecting pending migrations needs the filesystem and is intentionally not done here.
-    - Read-only.
+    - Takes no arguments; each migration name appears once, under its batch.
+    - Pending migrations are not detected, because that needs the filesystem; the output says so with pending_detection.
     TEXT)]
+#[IsReadOnly]
 class MigrationsStatusTool extends AbstractAgentTool
 {
     /**
@@ -79,7 +79,7 @@ class MigrationsStatusTool extends AbstractAgentTool
 
         // 3. A database without a migrations table is a valid state, not a fault.
         if (! in_array(self::MIGRATIONS_TABLE, $this->catalog->knownTables(), true)) {
-            return $this->respond([
+            return $this->jsonResponse([
                 'migrations_table_present' => false,
                 'reason' => 'no migrations table on the readonly connection',
                 'pending_detection' => 'filesystem_required',
@@ -93,38 +93,21 @@ class MigrationsStatusTool extends AbstractAgentTool
             'SELECT migration, batch FROM '.self::MIGRATIONS_TABLE.' ORDER BY batch ASC, migration ASC',
         );
 
-        $ran = array_map(fn (object $row): array => [
-            'migration' => $row->migration,
-            'batch' => (int) $row->batch,
-        ], $rows);
-
+        // Each migration is named once, under its batch; a separate flat list would repeat every name.
         $batches = [];
 
-        foreach ($ran as $entry) {
-            $batches[$entry['batch']][] = $entry['migration'];
+        foreach ($rows as $row) {
+            $batches[(int) $row->batch][] = $row->migration;
         }
 
-        return $this->respond([
+        return $this->jsonResponse([
             'migrations_table_present' => true,
-            'ran_count' => count($ran),
-            'latest_batch' => $ran === [] ? 0 : max(array_column($ran, 'batch')),
-            'ran' => $ran,
+            'ran_count' => count($rows),
+            'latest_batch' => $batches === [] ? 0 : max(array_keys($batches)),
             'batches' => $batches,
             // Pending detection needs the on-disk migration directory; this tool is
             // a read-only catalog tool and does not touch the filesystem.
             'pending_detection' => 'filesystem_required',
         ]);
-    }
-
-    /**
-     * Redact (defense-in-depth) and emit the payload as a JSON text response.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    private function respond(array $payload): Response
-    {
-        $redacted = $this->redactor()->redactArray($payload);
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
     }
 }

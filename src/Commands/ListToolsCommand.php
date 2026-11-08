@@ -4,6 +4,7 @@ namespace Anilcancakir\LaravelAgentMcp\Commands;
 
 use Anilcancakir\LaravelAgentMcp\Cli\AbstractMcpCliCommand;
 use Anilcancakir\LaravelAgentMcp\Cli\RemoteInvocationException;
+use Anilcancakir\LaravelAgentMcp\Support\RetiredToolKeys;
 use Illuminate\Support\Facades\App;
 
 /**
@@ -32,7 +33,15 @@ class ListToolsCommand extends AbstractMcpCliCommand
         }
 
         try {
-            $tools = $this->resolveMode() === 'remote'
+            $mode = $this->resolveMode();
+
+            // Local mode only: a remote list describes the server's config, which this
+            // process's config says nothing about. Stderr keeps stdout the parseable list.
+            if ($mode === 'local' && ($retired = RetiredToolKeys::warning()) !== null) {
+                $this->writeError($retired);
+            }
+
+            $tools = $mode === 'remote'
                 ? $this->remoteList()
                 : $this->localList((bool) $this->option('all'));
         } catch (RemoteInvocationException $exception) {

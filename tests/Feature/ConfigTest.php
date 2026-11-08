@@ -55,8 +55,8 @@ it('enables all read tools and disables run_artisan by default', function (): vo
     expect(config('agent-mcp.tools.run_artisan'))->toBeFalse();
 });
 
-it('caps query rows at 100 and sets a 5s statement timeout against DoS', function (): void {
-    expect(config('agent-mcp.query.max_rows'))->toBe(100);
+it('caps query rows at 50 and sets a 5s statement timeout against DoS', function (): void {
+    expect(config('agent-mcp.query.max_rows'))->toBe(50);
     expect(config('agent-mcp.query.statement_timeout_ms'))->toBe(5000);
 });
 
@@ -74,41 +74,42 @@ it('ships default redaction patterns covering common secret shapes', function ()
 
 it('defaults logs channel to null so the active channel is resolved at runtime', function (): void {
     expect(config('agent-mcp.logs.channel'))->toBeNull();
-    expect(config('agent-mcp.logs.max_lines'))->toBe(200);
+    expect(config('agent-mcp.logs.max_lines'))->toBe(100);
 });
 
-// Investigation tools: per-tool flags
+// Tool enable flags
+
+it('ships exactly the fourteen tool flags with their default states', function (): void {
+    expect(config('agent-mcp.tools'))->toBe([
+        'db_schema' => true,
+        'db_query' => true,
+        'db_raw_select' => true,
+        'read_logs' => true,
+        'run_artisan' => false,
+        'migrations_status' => true,
+        'db_health' => true,
+        'db_diagnostics' => false,
+        'queue_status' => true,
+        'cache' => true,
+        'cache_keys' => false,
+        'routes' => true,
+        'app_info' => true,
+        'config_inspect' => false,
+    ]);
+});
 
 it('enables safe read-only investigation tools by default', function (): void {
-    // Queue
-    expect(config('agent-mcp.tools.queue_backlog'))->toBeTrue();
-    expect(config('agent-mcp.tools.queue_failed_jobs'))->toBeTrue();
-    expect(config('agent-mcp.tools.horizon_status'))->toBeTrue();
-
-    // Database health
-    expect(config('agent-mcp.tools.db_index_health'))->toBeTrue();
-    expect(config('agent-mcp.tools.db_missing_fk_indexes'))->toBeTrue();
-    expect(config('agent-mcp.tools.db_table_sizes'))->toBeTrue();
     expect(config('agent-mcp.tools.migrations_status'))->toBeTrue();
-
-    // Cache
-    expect(config('agent-mcp.tools.cache_status'))->toBeTrue();
-    expect(config('agent-mcp.tools.cache_inspect'))->toBeTrue();
-
-    // App introspection
-    expect(config('agent-mcp.tools.list_routes'))->toBeTrue();
-    expect(config('agent-mcp.tools.inspect_route'))->toBeTrue();
-    expect(config('agent-mcp.tools.app_about'))->toBeTrue();
-    expect(config('agent-mcp.tools.schedule_list'))->toBeTrue();
-    expect(config('agent-mcp.tools.event_list'))->toBeTrue();
-    expect(config('agent-mcp.tools.storage_info'))->toBeTrue();
-    expect(config('agent-mcp.tools.env_keys'))->toBeTrue();
+    expect(config('agent-mcp.tools.db_health'))->toBeTrue();
+    expect(config('agent-mcp.tools.queue_status'))->toBeTrue();
+    expect(config('agent-mcp.tools.cache'))->toBeTrue();
+    expect(config('agent-mcp.tools.routes'))->toBeTrue();
+    expect(config('agent-mcp.tools.app_info'))->toBeTrue();
 });
 
 it('disables sensitive investigation tools by default so the operator opts in', function (): void {
-    // Privileged DB tools require pg_monitor/pg_read_all_stats or performance_schema grants.
-    expect(config('agent-mcp.tools.db_slow_queries'))->toBeFalse();
-    expect(config('agent-mcp.tools.db_active_locks'))->toBeFalse();
+    // Privileged DB reads require pg_monitor/pg_read_all_stats or performance_schema grants.
+    expect(config('agent-mcp.tools.db_diagnostics'))->toBeFalse();
 
     // cache_keys can leak live session IDs from a shared Redis store.
     expect(config('agent-mcp.tools.cache_keys'))->toBeFalse();

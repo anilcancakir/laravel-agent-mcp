@@ -9,6 +9,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
  * MCP tool: cache_keys
@@ -41,14 +42,14 @@ use Laravel\Mcp\Server\Attributes\Name;
  */
 #[Name('cache_keys')]
 #[Description(<<<'TEXT'
-    List cache keys with their TTLs. Use it sparingly to audit what is stored in the cache.
+    Cache keys with their TTLs, to audit what is stored in the cache. Use it sparingly.
 
-    Usage:
     - Off by default; treat a denial as the expected default.
-    - Works on the database and Redis drivers only. Redis uses SCAN, never KEYS. Session-prefix keys are excluded so live session IDs do not leak.
-    - Omit `store` to use the default store.
-    - Read-only.
+    - Lists the database and Redis drivers only; Redis is walked with SCAN, never KEYS. The file store reports counts only.
+    - Session-prefix keys are excluded so live session IDs do not leak.
+    - Omit `store` for the default store.
     TEXT)]
+#[IsReadOnly]
 class CacheKeysTool extends AbstractAgentTool
 {
     /**
@@ -112,7 +113,7 @@ class CacheKeysTool extends AbstractAgentTool
             ],
         };
 
-        return $this->respond($payload);
+        return $this->jsonResponse($payload);
     }
 
     /**
@@ -339,17 +340,5 @@ class CacheKeysTool extends AbstractAgentTool
     {
         return config('database.redis') !== null
             && (extension_loaded('redis') || class_exists(self::PREDIS_CLIENT));
-    }
-
-    /**
-     * Redact (defense-in-depth, last net) and emit the payload as a JSON response.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    private function respond(array $payload): Response
-    {
-        $redacted = $this->redactor()->redactArray($payload);
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
     }
 }

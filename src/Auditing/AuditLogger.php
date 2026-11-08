@@ -28,8 +28,10 @@ class AuditLogger
      * @param  string  $tool  The MCP tool name (e.g. 'db_query').
      * @param  array<string, string>  $argShape  Argument shape map: key => PHP type name.
      *                                           Values must never appear here.
+     * @param  string|null  $section  The validated section of a merged tool; one of the
+     *                                tool's enum values, never raw agent input.
      */
-    public function record(string $tool, array $argShape): void
+    public function record(string $tool, array $argShape, ?string $section = null): void
     {
         // 1. Short-circuit when the operator has disabled auditing.
         if (! config('agent-mcp.audit.enabled')) {
@@ -43,6 +45,10 @@ class AuditLogger
             'arg_shape' => $argShape,
             'timestamp' => now()->toIso8601String(),
         ];
+
+        if ($section !== null) {
+            $context['section'] = $section;
+        }
 
         // 3. Write to the dedicated audit channel so the entry is routable to a
         //    separate log sink without touching the application log.

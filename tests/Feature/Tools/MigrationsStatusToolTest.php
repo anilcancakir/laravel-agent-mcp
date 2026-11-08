@@ -4,6 +4,7 @@ use Anilcancakir\LaravelAgentMcp\Tools\MigrationsStatusTool;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -63,6 +64,25 @@ it('returns the ran migrations with their batch numbers', function (): void {
     $response->assertSee('2024_01_01_000000_create_users_table');
     $response->assertSee('2024_02_02_000000_create_posts_table');
     $response->assertSee('batch');
+});
+
+it('names each migration once, grouped by batch, in compact JSON', function (): void {
+    $text = (string) app(MigrationsStatusTool::class)->handle(new Request([]))->content();
+    $payload = json_decode($text, associative: true, flags: JSON_THROW_ON_ERROR);
+
+    expect(substr_count($text, '2024_01_01_000000_create_users_table'))->toBe(1)
+        ->and(substr_count($text, '2024_02_02_000000_create_posts_table'))->toBe(1)
+        ->and($text)->not->toContain("\n")
+        ->and($payload)->toHaveKeys(['ran_count', 'batches'])
+        ->and(array_key_exists('ran', $payload))->toBeFalse();
+});
+
+it('is annotated read-only within the description budget', function (): void {
+    $tool = app(MigrationsStatusTool::class);
+
+    expect($tool->toArray()['annotations'])->toHaveKey('readOnlyHint', true)
+        ->and(mb_strlen((string) $tool->description()))->toBeLessThanOrEqual(1500)
+        ->and((string) $tool->description())->not->toContain('Read-only.');
 });
 
 // --- flags filesystem-required pending detection (never reads the FS) ---

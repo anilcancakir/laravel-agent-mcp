@@ -4,6 +4,7 @@ use Anilcancakir\LaravelAgentMcp\Tools\CacheKeysTool;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -93,6 +94,18 @@ it('lists database keys with the cache prefix stripped', function (): void {
     $response->assertDontSee('keys_cache_dashboard_stats');
 });
 
+it('emits compact JSON and is annotated read-only within the description budget', function (): void {
+    $tool = app(CacheKeysTool::class);
+
+    $text = (string) $tool->handle(new Request(['store' => 'database']))->content();
+
+    expect($text)->not->toContain("\n")
+        ->and($text)->toContain('"store":"database"')
+        ->and($tool->toArray()['annotations'])->toHaveKey('readOnlyHint', true)
+        ->and(mb_strlen((string) $tool->description()))->toBeLessThanOrEqual(1500)
+        ->and((string) $tool->description())->not->toContain('Read-only.');
+});
+
 // --- redis client support ---
 
 it('reports key enumeration as unavailable for a redis store on a non-phpredis client', function (): void {
@@ -102,7 +115,7 @@ it('reports key enumeration as unavailable for a redis store on a non-phpredis c
     $response = CacheKeysStubServer::tool(CacheKeysTool::class, ['store' => 'redis'])
         ->assertOk();
 
-    $response->assertSee('"available": false');
+    $response->assertSee('"available":false');
     $response->assertDontSee('LIVESESSIONID12345');
 });
 

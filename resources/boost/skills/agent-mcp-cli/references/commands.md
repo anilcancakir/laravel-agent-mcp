@@ -17,6 +17,8 @@ is 0 on success and non-zero on any error.
   A configured URL with no `AGENT_MCP_KEY` in the environment errors loudly; the command never
   silently falls back to local mode. `AGENT_MCP_KEY` is read from `.env` automatically by
   `php artisan`, so you never export it by hand or pass it on the command line; just run the command.
+  `AGENT_MCP_KEY` is never written to `.agent-mcp.json`. Committing a url routes every key holder's
+  calls to that host, so review it before committing.
 - `--local`: force in-process execution.
 - `--remote`: force remote forwarding (requires a configured URL and `AGENT_MCP_KEY`).
 
@@ -41,7 +43,7 @@ Examples:
 php artisan agent-mcp:call db_schema
 php artisan agent-mcp:call db_schema '{"table":"users"}'
 echo '{"sql":"select count(*) as c from users"}' | php artisan agent-mcp:call db_raw_select
-php artisan agent-mcp:call app_about --raw | jq '.environment'
+php artisan agent-mcp:call app_info --raw | jq '.environment'
 ```
 
 Exit code: non-zero on a disabled/unknown tool, malformed JSON, a sensitive-tool tty refusal,
@@ -69,7 +71,7 @@ php artisan agent-mcp:schema <tool> [--remote] [--local]
 ## Sensitive tools and the terminal
 
 These tools are off by default and can surface secrets:
-`run_artisan`, `config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`.
+`run_artisan`, `config_inspect`, `db_diagnostics`, `cache_keys`.
 
 When one of them is enabled, `agent-mcp:call` refuses to write its result to an interactive
 terminal unless `--allow-tty` is passed, because the output would land in terminal scrollback

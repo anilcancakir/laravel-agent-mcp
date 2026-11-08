@@ -1,6 +1,7 @@
 <?php
 
 use Anilcancakir\LaravelAgentMcp\Tools\ConfigInspectTool;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -79,6 +80,18 @@ it('returns the key-tree with gettype per leaf and no values by default', functi
     // The leaf type appears, the value does not.
     $response->assertSee('string');
     $response->assertDontSee('TZ_ISTANBUL_MARKER');
+});
+
+it('emits compact JSON and is annotated read-only within the description budget', function (): void {
+    $tool = app(ConfigInspectTool::class);
+
+    $text = (string) $tool->handle(new Request(['key' => 'app']))->content();
+
+    expect($text)->not->toContain("\n")
+        ->and($text)->toContain('"key":"app"')
+        ->and($tool->toArray()['annotations'])->toHaveKey('readOnlyHint', true)
+        ->and(mb_strlen((string) $tool->description()))->toBeLessThanOrEqual(1500)
+        ->and((string) $tool->description())->not->toContain('Read-only.');
 });
 
 // --- block-list wins over safe-list for a DSN/url path ---

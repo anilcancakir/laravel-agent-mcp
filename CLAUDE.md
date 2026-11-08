@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 25 read-only tools to LLM agents. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <2.0`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
+`anilcancakir/laravel-agent-mcp` is a Laravel PACKAGE (not an application): a secure, read-only MCP server that exposes 14 tools to LLM agents: 13 only read, and `run_artisan` runs nothing until an operator allowlists a command. PHP `^8.3` (CI runs 8.3, 8.4, 8.5), Laravel 12/13 via `illuminate/contracts`, built on `laravel/mcp` `>=0.6 <2.0`. Other runtime deps: `phpmyadmin/sql-parser`, `spatie/laravel-package-tools`. Tests run on Orchestra Testbench against in-memory SQLite; there is no app bootstrap or `.env` to run.
 
 ## Commands
 
@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Layout (non-obvious)
 
-- `src/Tools/` is the 25 MCP tools. Each extends `AbstractAgentTool` and its `handle()` runs the same pipeline in order: `authorize()` (the per-tool config gate) first, then `audit()` (records the argument shape, never values), then the read-only work, then `redactor()` on the output. A new tool follows this exact order and is gated by `config('agent-mcp.tools.<name>')`.
+- `src/Tools/` is the 14 MCP tools. Each extends `AbstractAgentTool` and its `handle()` runs the same pipeline in order: `authorize()` (the per-tool config gate) first, then `audit()` (records the argument shape, never values), then the read-only work, then `redactor()` on the output. A new tool follows this exact order and is gated by `config('agent-mcp.tools.<name>')`.
 - `src/Server/AgentMcpServer.php` holds the `$tools` registry array and the server `#[Instructions]`.
 - `src/Support/` is final static helpers (`InstallMode`, `AgentTarget`, `GuidelineInjector`, `SkillInstaller`, `OutputRedactor`).
 - `src/Database/` and `src/Sql/` hold the read-only connection resolver and the SELECT-only statement validator.

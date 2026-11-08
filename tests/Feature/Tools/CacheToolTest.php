@@ -1,6 +1,6 @@
 <?php
 
-use Anilcancakir\LaravelAgentMcp\Tools\CacheInspectTool;
+use Anilcancakir\LaravelAgentMcp\Tools\CacheTool;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -8,30 +8,30 @@ use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
 
-// A minimal server that hosts only CacheInspectTool, keeping these tests
+// A minimal server that hosts only CacheTool, keeping these tests
 // isolated from AgentMcpServer.
 
 /**
- * Inline stub server that hosts CacheInspectTool for this test file only.
+ * Inline stub server that hosts CacheTool for this test file only.
  */
-final class CacheInspectStubServer extends Server
+final class CacheStubServer extends Server
 {
     /**
      * @var array<int, class-string<Tool>>
      */
     protected array $tools = [
-        CacheInspectTool::class,
+        CacheTool::class,
     ];
 }
 
 // A value placed in the cache that MUST NOT leak when value reads are disabled.
-const INSPECT_SECRET_VALUE = 'PLAINTEXT_CACHE_VALUE_xyz789';
+const CACHE_SECRET_VALUE = 'PLAINTEXT_CACHE_VALUE_xyz789';
 
 beforeEach(function (): void {
     // laravel/mcp's provider populates the injected Request via method injection.
     app()->register(McpServiceProvider::class);
 
-    config()->set('agent-mcp.tools.cache_inspect', true);
+    config()->set('agent-mcp.tools.cache', true);
     config()->set('agent-mcp.audit.enabled', false);
     config()->set('agent-mcp.cache.allow_value_read', false);
 
@@ -55,7 +55,7 @@ beforeEach(function (): void {
     // Seed a plain non-secret key/value pair (serialized like the database cache store does).
     DB::table('cache')->insert([
         'key' => 'inspect_cache_report_data',
-        'value' => serialize(INSPECT_SECRET_VALUE),
+        'value' => serialize(CACHE_SECRET_VALUE),
         'expiration' => now()->addHour()->getTimestamp(),
     ]);
 
@@ -69,79 +69,172 @@ beforeEach(function (): void {
 
 // --- tool-enabled gate ---
 
-it('denies the call when cache_inspect is disabled in config', function (): void {
-    config()->set('agent-mcp.tools.cache_inspect', false);
+it('denies the call when cache is disabled in config', function (): void {
+    config()->set('agent-mcp.tools.cache', false);
 
-    CacheInspectStubServer::tool(CacheInspectTool::class, ['store' => 'database', 'key' => 'report_data'])
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertHasErrors();
+
+    CacheStubServer::tool(CacheTool::class, ['store' => 'database', 'key' => 'report_data'])
         ->assertHasErrors();
 });
 
-// --- default metadata-only ---
+it('is annotated read-only and named cache', function (): void {
+    $tool = app(CacheTool::class);
 
-it('returns exists, ttl_seconds and value_type metadata by default', function (): void {
-    $response = CacheInspectStubServer::tool(CacheInspectTool::class, [
-        'store' => 'database',
-        'key' => 'report_data',
-    ])->assertOk();
-
-    $response->assertSee('exists');
-    $response->assertSee('ttl_seconds');
-    $response->assertSee('value_type');
+    expect($tool->name())->toBe('cache')
+        ->and($tool->toArray()['annotations'])->toHaveKey('readOnlyHint', true)
+        ->and(mb_strlen($tool->description()))->toBeLessThanOrEqual(1500);
 });
 
-// --- raw value withheld by default (no flag) ---
+// --- status mode (no key) ---
+
+it('reports the configured stores, default store and prefix', function (): void {
+    config()->set('cache.default', 'array');
+    config()->set('cache.prefix', 'agentmcp_cache_');
+
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertOk()
+        ->assertSee('"stores"')
+        ->assertSee('"default":"array"')
+        ->assertSee('"prefix":"agentmcp_cache_"');
+});
+
+it('reports the framework optimization state and an opcache section', function (): void {
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertOk()
+        ->assertSee('"optimization"')
+        ->assertSee('config_cached')
+        ->assertSee('routes_cached')
+        ->assertSee('events_cached')
+        ->assertSee('"opcache"');
+});
+
+it('emits compact JSON without pretty printing', function (): void {
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertOk()
+        ->assertSee('"session_overlap_risk":')
+        ->assertDontSee('"session_overlap_risk": ');
+});
+
+it('flags session overlap risk when session uses redis on the cache connection', function (): void {
+    config()->set('session.driver', 'redis');
+    config()->set('session.connection', 'default');
+    config()->set('cache.default', 'redis');
+    config()->set('cache.stores.redis', [
+        'driver' => 'redis',
+        'connection' => 'default',
+    ]);
+
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertOk()
+        ->assertSee('"session_overlap_risk":true');
+});
+
+it('does not flag session overlap risk when session does not use redis', function (): void {
+    config()->set('session.driver', 'file');
+    config()->set('cache.default', 'array');
+
+    CacheStubServer::tool(CacheTool::class, [])
+        ->assertOk()
+        ->assertSee('"session_overlap_risk":false');
+});
+
+// --- inspect mode (key given) ---
+
+it('returns exists, ttl_seconds and value_type metadata for a key', function (): void {
+    CacheStubServer::tool(CacheTool::class, [
+        'store' => 'database',
+        'key' => 'report_data',
+    ])
+        ->assertOk()
+        ->assertSee('"store":"database"')
+        ->assertSee('"exists":true')
+        ->assertSee('ttl_seconds')
+        ->assertSee('"value_type":"string"');
+});
+
+it('reports a missing key as not existing', function (): void {
+    CacheStubServer::tool(CacheTool::class, [
+        'store' => 'database',
+        'key' => 'no_such_key',
+    ])
+        ->assertOk()
+        ->assertSee('"exists":false');
+});
+
+it('reports redis as unavailable when no redis client is configured', function (): void {
+    config()->set('database.redis', null);
+    config()->set('cache.stores.redis', [
+        'driver' => 'redis',
+        'connection' => 'cache',
+    ]);
+
+    CacheStubServer::tool(CacheTool::class, [
+        'store' => 'redis',
+        'key' => 'report_data',
+    ])
+        ->assertOk()
+        ->assertSee('"store":"redis"')
+        ->assertSee('"available":false')
+        ->assertSee('redis is not configured');
+});
+
+it('returns an error for an empty key in inspect mode', function (): void {
+    CacheStubServer::tool(CacheTool::class, ['store' => 'database', 'key' => ''])
+        ->assertHasErrors(['A non-empty key is required.']);
+});
+
+// --- value gate: raw_value AND allow_value_read AND key not block-listed ---
 
 it('withholds the raw value when raw_value is not requested', function (): void {
-    $response = CacheInspectStubServer::tool(CacheInspectTool::class, [
+    config()->set('agent-mcp.cache.allow_value_read', true);
+
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'report_data',
-    ])->assertOk();
-
-    $response->assertDontSee(INSPECT_SECRET_VALUE);
+    ])
+        ->assertOk()
+        ->assertDontSee(CACHE_SECRET_VALUE)
+        ->assertSee('[REDACTED]');
 });
-
-// --- raw value withheld when allow_value_read is false ---
 
 it('redacts the raw value when allow_value_read is false even with raw_value=true', function (): void {
     config()->set('agent-mcp.cache.allow_value_read', false);
 
-    $response = CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'report_data',
         'raw_value' => true,
-    ])->assertOk();
-
-    $response->assertDontSee(INSPECT_SECRET_VALUE);
-    $response->assertSee('[REDACTED]');
+    ])
+        ->assertOk()
+        ->assertDontSee(CACHE_SECRET_VALUE)
+        ->assertSee('"value":"[REDACTED]"');
 });
-
-// --- block-listed key name redacted even when allowed ---
 
 it('redacts a block-listed key name value even when allow_value_read is true', function (): void {
     config()->set('agent-mcp.cache.allow_value_read', true);
 
-    $response = CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'user_token',
         'raw_value' => true,
-    ])->assertOk();
-
-    $response->assertDontSee('a-live-token-value');
-    $response->assertSee('[REDACTED]');
+    ])
+        ->assertOk()
+        ->assertDontSee('a-live-token-value')
+        ->assertSee('[REDACTED]');
 });
 
-// --- raw value returned when flag on AND key safe ---
-
-it('returns the raw value when allow_value_read is true and the key is not block-listed', function (): void {
+it('returns the raw value when all three gate conditions hold', function (): void {
     config()->set('agent-mcp.cache.allow_value_read', true);
 
-    $response = CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'report_data',
         'raw_value' => true,
-    ])->assertOk();
-
-    $response->assertSee(INSPECT_SECRET_VALUE);
+    ])
+        ->assertOk()
+        ->assertSee(CACHE_SECRET_VALUE);
 });
 
 // --- value_type for payloads that are not serialized ---
@@ -153,12 +246,12 @@ it('reports a plain unserialized string as a string instead of failing', functio
         'expiration' => now()->addHour()->getTimestamp(),
     ]);
 
-    CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'plain_scalar',
     ])
         ->assertOk()
-        ->assertSee('"value_type": "string"');
+        ->assertSee('"value_type":"string"');
 });
 
 it('reports a serialized false as a boolean', function (): void {
@@ -168,12 +261,12 @@ it('reports a serialized false as a boolean', function (): void {
         'expiration' => now()->addHour()->getTimestamp(),
     ]);
 
-    CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'stored_false',
     ])
         ->assertOk()
-        ->assertSee('"value_type": "boolean"');
+        ->assertSee('"value_type":"boolean"');
 });
 
 it('reports a payload with trailing data as a string instead of the partial parse', function (): void {
@@ -183,12 +276,12 @@ it('reports a payload with trailing data as a string instead of the partial pars
         'expiration' => now()->addHour()->getTimestamp(),
     ]);
 
-    CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'trailing_data',
     ])
         ->assertOk()
-        ->assertSee('"value_type": "string"');
+        ->assertSee('"value_type":"string"');
 });
 
 it('never autoloads an enum class named in a cached payload', function (): void {
@@ -205,12 +298,12 @@ it('never autoloads an enum class named in a cached payload', function (): void 
     ]);
 
     try {
-        CacheInspectStubServer::tool(CacheInspectTool::class, [
+        CacheStubServer::tool(CacheTool::class, [
             'store' => 'database',
             'key' => 'enum_payload',
         ])
             ->assertOk()
-            ->assertSee('"value_type": "string"');
+            ->assertSee('"value_type":"string"');
     } finally {
         spl_autoload_unregister($recorder);
     }
@@ -219,7 +312,7 @@ it('never autoloads an enum class named in a cached payload', function (): void 
 });
 
 it('restores the application error handler after inspecting a value', function (): void {
-    CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'plain_scalar_missing',
     ])->assertOk();
@@ -230,7 +323,7 @@ it('restores the application error handler after inspecting a value', function (
         'expiration' => now()->addHour()->getTimestamp(),
     ]);
 
-    CacheInspectStubServer::tool(CacheInspectTool::class, [
+    CacheStubServer::tool(CacheTool::class, [
         'store' => 'database',
         'key' => 'plain_again',
     ])->assertOk();
@@ -256,7 +349,7 @@ it('forwards deprecations raised while parsing to the application error handler'
     ]);
 
     try {
-        CacheInspectStubServer::tool(CacheInspectTool::class, [
+        CacheStubServer::tool(CacheTool::class, [
             'store' => 'database',
             'key' => 'deprecated_format',
         ])->assertOk();

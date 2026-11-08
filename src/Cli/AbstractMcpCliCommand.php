@@ -42,8 +42,7 @@ abstract class AbstractMcpCliCommand extends Command
     public const SENSITIVE_TOOLS = [
         'run_artisan',
         'config_inspect',
-        'db_slow_queries',
-        'db_active_locks',
+        'db_diagnostics',
         'cache_keys',
     ];
 

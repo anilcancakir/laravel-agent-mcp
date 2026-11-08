@@ -1,155 +1,104 @@
 # agent-mcp tool reference
 
-Exact inputs, outputs, and caveats for every read-only tool. Read the entry for a tool when you need its precise parameters or are interpreting an unfamiliar field. Every tool is read-only, gated by `config('agent-mcp.tools.<name>')`, and runs its output through a best-effort redactor. Tools marked OFF are disabled by default and return a denial until the operator enables them.
+Sections, parameters, caps and default state of the 14 tools. No tool writes to the database; each is gated by `config('agent-mcp.tools.<name>')`, and its output goes through a best-effort redactor. A tool with sections uses its first listed section when none is given and refuses an unknown one with the valid names. Tools marked OFF are disabled by default and return a denial until the operator enables them.
 
 ## Contents
 
-- Database schema and queries: `db_schema`, `db_query`, `db_raw_select`
-- Database health: `db_index_health`, `db_missing_fk_indexes`, `db_table_sizes`, `migrations_status`, `db_slow_queries` (OFF), `db_active_locks` (OFF)
+- Database: `db_schema`, `db_query`, `db_raw_select`, `migrations_status`, `db_health`, `db_diagnostics` (OFF)
 - Logs and artisan: `read_logs`, `run_artisan` (OFF)
-- Queue: `queue_backlog`, `queue_failed_jobs`, `horizon_status`
-- Cache: `cache_status`, `cache_inspect`, `cache_keys` (OFF)
-- App introspection: `list_routes`, `inspect_route`, `app_about`, `schedule_list`, `event_list`, `storage_info`, `env_keys`, `config_inspect` (OFF)
+- Queue: `queue_status`
+- Cache: `cache`, `cache_keys` (OFF)
+- App: `routes`, `app_info`, `config_inspect` (OFF)
 
-## Database schema and queries
+## db_schema
 
-### db_schema
-Inspect the live schema on the read-only connection.
-- Params: `table` (string, optional).
-- Returns: with no `table`, the list of tables with sizes; with `table`, that table's `columns`, `indexes`, and `foreign_keys`.
-- Caveat: an unknown table name is rejected with a clean error. Call this before any query.
+Live tables, columns, indexes and foreign keys, as they are in the running database. ON, uncapped.
+- `table` (optional): omit to list every table with its size; give one for its `columns`, `indexes` and `foreign_keys`. An unknown name is rejected.
 
-### db_query
-Structured, parameterized read against one table.
-- Params: `table` (string, required); `query_type` (enum `find` | `where` | `count`, required); `id` (integer, for `find`); `conditions` (array of objects, each `{column, operator, value}`); `select` (array of columns, defaults to all); `limit` (integer, clamped to `query.max_rows`); `order_by` (string); `order_dir` (enum `asc` | `desc`, default `asc`).
-- Allowed operators: `=`, `!=`, `<`, `>`, `<=`, `>=`, `like`, `in`. Any other operator is rejected before the query runs.
-- Returns: `{row}` for find, `{rows}` for where, `{count}` for count.
-- Caveat: table and column names are validated against the live schema; values are always bound as parameters.
+## db_query
 
-### db_raw_select
-Ad-hoc read-only SELECT supplied as raw SQL.
-- Params: `sql` (string, required, a single SELECT or read-only CTE).
-- Returns: the result rows.
-- Caveat: a SELECT-only grammar validator rejects writes, stacked statements, and file functions before execution; a row LIMIT is applied automatically when omitted. On rejection the offending SQL is not echoed back. Use only when `db_query` cannot express the query.
+Structured, bound read of one table. ON.
+- `table` (required); `query_type` is `find` (one row by `id`), `where` (default, filtered list) or `count`.
+- `conditions`: objects `{column, operator, value}` with operator `=`, `!=`, `<`, `>`, `<=`, `>=`, `like` or `in`. `select`, `order_by` and `order_dir` (`asc` default, `desc`) are optional.
+- Unknown tables, columns and operators are rejected before the query runs; values are always bound.
+- Returns `{row}`, `{rows}` or `{count}`. A where list is capped at `agent-mcp.query.max_rows` (default 50), `limit` can only lower it, and `truncated: true` marks a cut list.
 
-## Database health
+## db_raw_select
 
-### db_index_health
-Index inventory and advisory per table.
-- Params: `table` (string, optional; omit to scan all).
-- Returns: indexes per table. PostgreSQL adds unused-index detection (`idx_scan = 0`, excluding unique/constraint/partial) and a sequential-scan advisory; MySQL uses `information_schema.STATISTICS`; SQLite uses `pragma_index_list`.
+One ad-hoc SELECT or read-only CTE for joins, subqueries, aggregates and window functions. ON.
+- `sql` (required). Writes, stacked statements and file functions are refused before execution, and a rejection never echoes the SQL.
+- An explicit `LIMIT` must be a plain number within the `max_rows` cap, otherwise the call is refused; without one the cap applies.
+- Returns `{rows, truncated?}`.
 
-### db_missing_fk_indexes
-Foreign-key columns without a covering index.
-- Params: `table` (string, optional).
-- Returns: the uncovered foreign-key columns. PostgreSQL and MySQL are definitive; SQLite is heuristic and labelled as such.
+## migrations_status
 
-### db_table_sizes
-Per-table storage and row counts.
-- Params: `table` (string, optional).
-- Returns: PostgreSQL gives total/table/index bytes plus live and dead tuple counts and `dead_pct`; MySQL gives `information_schema.TABLES` estimates; SQLite probes `dbstat` for exact bytes or degrades to whole-database page size.
+Migrations that ran, read from the migrations table. ON, no parameters.
+- Returns `ran_count`, `latest_batch` and `batches`, each migration name once under its batch.
+- Pending migrations are not detected because that needs the filesystem; `pending_detection` says so. A missing migrations table reports `migrations_table_present: false`.
 
-### migrations_status
-Which migrations have run.
-- Params: none.
-- Returns: the ran list grouped by batch and the latest batch. Pending detection needs the filesystem and is intentionally not performed; degrades gracefully when the migrations table is absent.
+## db_health
 
-### db_slow_queries (OFF)
-Top statements by mean execution time.
-- Params: `limit` (integer, default 20, capped at 100).
-- Returns: the slowest statements. PostgreSQL requires `pg_stat_statements`; MySQL requires `performance_schema`; otherwise `{available:false}`. Query text can be null without `pg_monitor` / `pg_read_all_stats`; numeric stats are still emitted.
+Table sizes, index inventory and missing foreign-key indexes. ON.
+- `section`: `sizes` (default), `indexes`, `missing_fk`. `table` scopes it to one table; `limit` caps the tables (default 50, at most 200), and `total` with `truncated` appear when tables were cut.
+- PostgreSQL adds dead-tuple percentages, unused-index detection and a sequential-scan advisory; MySQL sizes are storage-engine estimates; SQLite sizes need `dbstat` and otherwise fall back to the whole-file size, ignoring `table`.
+- `missing_fk` is definitive on PostgreSQL and MySQL and a labelled heuristic on SQLite.
 
-### db_active_locks (OFF)
-Point-in-time blocked and blocking sessions.
-- Params: none.
-- Returns: blocked/blocking pairs (PID, user, query). PostgreSQL reads `pg_locks` + `pg_stat_activity` (full visibility needs `pg_monitor`); MySQL reads `PROCESSLIST` + `performance_schema`; SQLite returns `{available:false}`.
-- Caveat: a snapshot at the instant of the call, not a live view.
+## db_diagnostics
 
-## Logs and artisan
+Server diagnostics that need extra database privileges. OFF; one flag opens both sections.
+- `section`: `slow_queries` (default, top statements by mean time; `limit` default 20, at most 100) or `locks` (blocked and blocking sessions, a point-in-time snapshot).
+- Needs `pg_stat_statements` or `pg_monitor` on PostgreSQL and `performance_schema` on MySQL; otherwise `{available:false, reason}`, always on SQLite.
 
-### read_logs
-Tail the application log channel.
-- Params: `lines` (integer, clamped to `logs.max_lines`, default 200); `level` (enum `error` | `warning` | `info` | `debug`, optional).
-- Returns: the trailing lines, optionally filtered by level, redacted. Call it immediately on a 500, exception, or failed job.
+## read_logs
 
-### run_artisan (OFF)
-Run an exact operator-allowlisted artisan command.
-- Params: `command` (string, required, exact allowlist match, no wildcards); `arguments` (object mapping option name to value, only allowlisted options accepted).
-- Returns: the command output, redacted.
-- Caveat: empty allowlist by default, so it denies until configured. The only tool that executes anything; assume it is unavailable unless confirmed.
+Tail of the application log. ON.
+- `lines` is clamped to `agent-mcp.logs.max_lines` (default 100); `level` is `error`, `warning`, `info` or `debug`.
+- A cut tail starts with a `(truncated: showing the last N lines)` line. Output is redacted.
 
-## Queue
+## run_artisan
 
-### queue_backlog
-Pending job counts.
-- Params: `connection` (string, optional); `queue` (string, optional).
-- Returns: per connection and queue, the pending size; the database driver adds a strict-pending count; the sync driver returns a not-applicable note.
+One artisan command from an exact operator allowlist, the only tool that executes anything. OFF, with an empty allowlist.
+- `command` must match an allowlisted name exactly; `arguments` may carry only the options the allowlist permits. Anything else is refused.
 
-### queue_failed_jobs
-Failed background jobs.
-- Params: `summary` (boolean, optional); `connection` (string, optional); `queue` (string, optional).
-- Returns: with `summary` true, counts grouped by connection and queue; otherwise per-job `{id, uuid, connection, queue, job_class, max_tries, timeout, exception_summary, failed_at}`. The raw job payload is never emitted.
+## queue_status
 
-### horizon_status
-Laravel Horizon snapshot.
-- Params: none.
-- Returns: `{available:true, workload, jobs, metrics, supervisors, master_supervisors}` when Horizon is installed, otherwise `{available:false}`.
+Queue health. ON.
+- `section`: `backlog` (default), `failed`, `horizon`. `connection` and `queue` scope backlog and failed.
+- `backlog`: pending count per connection and queue; the database driver adds `strict_pending`, the sync driver returns a not-applicable note.
+- `failed`: newest first, `{id, uuid, connection, queue, job_class, max_tries, timeout, exception_summary, failed_at}`, never the raw payload. `limit` defaults to 25 (at most 100) and the result carries `total` and `truncated`. `summary: true` returns counts per connection and queue instead.
+- `horizon`: workload, jobs, metrics and supervisors, or `{available:false}` when Horizon is not installed.
 
-## Cache
+## cache
 
-### cache_status
-Cache subsystem snapshot.
-- Params: none.
-- Returns: default store, global prefix, configured stores and drivers, optimization state (config / routes / events cached), an opcache summary, and `session_overlap_risk` (true when session and cache share a Redis connection).
+Cache status or one key. ON.
+- No `key`: default store, prefix, stores and drivers, optimization state (config, routes, events cached), an opcache summary and `session_overlap_risk`.
+- With `key` (without the global prefix): `exists`, `ttl_seconds` and `value_type` from the default store, or the one named by `store`.
+- The value stays `[REDACTED]` unless `raw_value` is true, `agent-mcp.cache.allow_value_read` is on and the key is not block-listed.
 
-### cache_inspect
-Inspect one cache key.
-- Params: `store` (string, optional, default store); `key` (string, required, without the global prefix); `raw_value` (boolean, optional).
-- Returns: `exists`, `ttl_seconds`, `value_type`, and `value`. The value is `[REDACTED]` unless `raw_value` is true AND `cache.allow_value_read` is true AND the key is not block-listed.
+## cache_keys
 
-### cache_keys (OFF)
-Enumerate cache keys with TTLs.
-- Params: `store` (string, optional).
-- Returns: keys with TTLs on the database and Redis drivers (Redis uses SCAN, never KEYS; session-prefix keys excluded). File driver returns counts only; other drivers return an opaque marker.
+Cache keys with their TTLs. OFF.
+- `store` (optional, default store). Database and Redis drivers list keys (Redis is walked with SCAN); the file store reports counts only; other drivers return an opaque marker. Session-prefix keys are excluded.
 
-## App introspection
+## routes
 
-### list_routes
-Registered routes with filters.
-- Params (all optional): `method`, `uri_prefix`, `name_pattern` (Str::is wildcard), `middleware`, `domain`, `exclude_middleware`, `only_fallback` (boolean).
-- Returns: routes with methods, URI, name, action, controller class, middleware (names only; closures shown as `[Closure]`), and where constraints. Controllers are never instantiated.
+Route list or one route. ON.
+- Give `name` (wins) or `uri` (no leading slash) for one route, including its `defaults`; an unknown route is an error.
+- Otherwise a list narrowed by any of `method`, `uri_prefix`, `name_pattern` (`Str::is` wildcard), `middleware`, `exclude_middleware` (for example `auth`, to find unprotected routes), `domain` and `only_fallback`.
+- Rows carry methods, URI, name, action, controller, middleware names (closures as `[Closure]`) and wheres. Controllers are never instantiated.
 
-### inspect_route
-One route in full.
-- Params: `name` (string) or `uri` (string, without leading slash); one is required.
-- Returns: the same shape as a `list_routes` row plus `defaults`.
+## app_info
 
-### app_about
-Environment snapshot (mirrors `php artisan about`).
-- Params: `sections` (array, optional: environment, cache, drivers, opcache, extensions).
-- Returns: the requested sections or all: versions, environment, debug and maintenance flags, drivers, cache state, opcache, loaded extensions.
+Static application surface. ON.
+- `section`: `about` (default), `env_keys`, `storage`, `schedule`, `events`.
+- `about` returns environment, cache, drivers, opcache and extensions; narrow it with `parts`.
+- `env_keys` returns sorted names and a count, never values.
+- `storage` returns the default disk, disks with credential keys stripped, and the link map.
+- `schedule` returns cron expression, command, timezone, flags and next run; closures show file and line.
+- `events` returns listeners with queue and broadcast flags, wildcards included; `filter` is a case-sensitive substring of the event name.
 
-### schedule_list
-Scheduled tasks.
-- Params: none.
-- Returns: per event the cron `expression`, `command`, `description`, `timezone`, overlap and single-server flags, environments, and the next run time. Closure events are reported as a callback with file and line.
+## config_inspect
 
-### event_list
-Registered event listeners.
-- Params: `filter` (string, optional, case-sensitive substring).
-- Returns: per event the listeners, classified as string, `[class, method]`, or closure (file and line), with `should_queue` and `should_broadcast` flags. Wildcard listeners are included.
-
-### storage_info
-Filesystem disks and public links.
-- Params: none.
-- Returns: the default disk, the disks (credential keys such as key, secret, password, token stripped), and the symlink map with a liveness check. Never creates or removes links.
-
-### env_keys
-Environment variable names.
-- Params: none.
-- Returns: the sorted key names and a count. Values are never returned. To read a config value, use `config_inspect`.
-
-### config_inspect (OFF)
-Config tree with optional value reveal.
-- Params: `key` (string, required, dot-path or file such as `app` or `database.connections.mysql`); `reveal_values` (boolean, optional); `safe_keys` (array of dot-paths, optional).
-- Returns: the key tree with value types. A value is revealed only when `reveal_values` is true AND the dot-path is in the operator `safe_list` (unioned with `safe_keys`) AND it is not block-listed. The block-list (covering `url`, `dsn`, `key`, `password`, `secret`, `token`, and more) always wins, so credentials stay `[REDACTED]` even when explicitly requested.
+Config tree with gated values. OFF, safe-list gated.
+- `key` (required) is a dot-path or file such as `app` or `database.connections.mysql`; by default only paths and value types come back.
+- A value is revealed only when `reveal_values` is true, the path is in the operator `safe_list` (plus `safe_keys`) and it is not block-listed. The block-list always wins, so keys, passwords and DSNs stay `[REDACTED]`.

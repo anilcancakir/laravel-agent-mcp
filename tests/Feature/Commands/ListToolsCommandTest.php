@@ -66,6 +66,43 @@ it('includes disabled tools flagged enabled=false with --all', function (): void
     expect($byName['db_schema']['enabled'])->toBeTrue();
 });
 
+it('warns about a retired tool key on stderr and keeps stdout a clean tool list', function (): void {
+    config()->set('agent-mcp.tools.cache_inspect', false);
+
+    $result = runTools([]);
+
+    expect($result['status'])->toBe(0);
+    expect($result['stderr'])->toContain('cache_inspect')->toContain('`cache`');
+    expect($result['stdout'])->not->toContain('cache_inspect');
+    expect(json_decode($result['stdout'], true))->toBeArray();
+});
+
+it('does not warn about the local config when it lists the remote server', function (): void {
+    config()->set('agent-mcp.tools.cache_inspect', false);
+    putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
+    putenv('AGENT_MCP_KEY=super-secret-key-value');
+
+    Http::fake([
+        'remote.test/*' => Http::response(json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'result' => ['tools' => [['name' => 'db_schema', 'description' => 'Schema']]],
+        ]), 200),
+    ]);
+
+    $result = runTools(['--remote' => true]);
+
+    putenv('AGENT_MCP_URL');
+    putenv('AGENT_MCP_KEY');
+
+    expect($result['status'])->toBe(0);
+    expect($result['stderr'])->toBe('');
+});
+
+it('stays silent on stderr when the config carries no retired key', function (): void {
+    expect(runTools([])['stderr'])->toBe('');
+});
+
 it('lists the remote tool set in remote mode', function (): void {
     putenv('AGENT_MCP_URL=https://remote.test/agent-mcp');
     putenv('AGENT_MCP_KEY=super-secret-key-value');
@@ -77,7 +114,7 @@ it('lists the remote tool set in remote mode', function (): void {
             'result' => [
                 'tools' => [
                     ['name' => 'db_schema', 'description' => 'Schema'],
-                    ['name' => 'app_about', 'description' => 'About'],
+                    ['name' => 'app_info', 'description' => 'About'],
                 ],
             ],
         ]), 200),
@@ -86,7 +123,7 @@ it('lists the remote tool set in remote mode', function (): void {
     $result = runTools(['--remote' => true]);
 
     expect($result['status'])->toBe(0);
-    expect(array_column(json_decode($result['stdout'], true), 'name'))->toBe(['db_schema', 'app_about']);
+    expect(array_column(json_decode($result['stdout'], true), 'name'))->toBe(['db_schema', 'app_info']);
     expect($result['stdout'])->not->toContain('super-secret-key-value');
 
     putenv('AGENT_MCP_URL');

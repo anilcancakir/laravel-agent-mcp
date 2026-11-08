@@ -13,33 +13,30 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
- * MCP tool: list_routes
+ * MCP tool: routes
  *
- * Returns a read-only snapshot of the application's registered routes, with
- * per-route detail: HTTP methods, URI, name, action, controller class (existence
- * check only, never instantiated), closure/invokable/fallback/redirect/view
- * flags, where-constraints, raw middleware, and resolved middleware class names.
+ * One tool for both route questions, so the agent pays for one schema: `name` or
+ * `uri` selects detail mode (one route, plus its `defaults`), otherwise list mode
+ * returns the filtered snapshot with `routes_are_cached`, `count` and `routes[]`.
+ * Both modes share one row builder, so a row has the same keys either way.
  *
- * Filters allow narrowing the result set by HTTP method, URI prefix, name
- * pattern (Str::is wildcard), middleware presence, domain, middleware exclusion
- * (e.g. find routes NOT behind auth), and fallback-only.
- *
- * Middleware NAMES (class strings) only: no signed-route secrets or closure
- * representations are emitted (closures are replaced with [Closure]).
+ * Controllers are never instantiated (class_exists() only). Middleware is reported
+ * by NAME only: closures become "[Closure]", so no signed-route secrets or closure
+ * state are emitted.
  */
-#[Name('list_routes')]
+#[Name('routes')]
 #[Description(<<<'TEXT'
-    List the application's registered routes with methods, URI, name, controller, and middleware. Use it to map the API surface, find a route, or audit middleware coverage.
+    Routes: list registered routes or inspect one by name or URI, with methods, controller, middleware, wheres and defaults; use it to map the API surface, find a route or audit middleware coverage.
 
-    Usage:
-    - Filters are all optional and combinable: method, uri_prefix, name_pattern (Str::is wildcard like "api.*"), middleware, exclude_middleware (e.g. "auth" to find unprotected routes), domain, only_fallback.
-    - Middleware is reported by name only; no signed-route keys are exposed.
-    - Use inspect_route for the full detail of one route.
-    - Read-only.
+    - Pass name or uri (exact match, name wins) for one route's full detail including its defaults; the URI is given without the leading slash.
+    - Otherwise it lists routes, narrowed by any combination of method, uri_prefix, name_pattern (Str::is wildcard like "api.*"), middleware, exclude_middleware (e.g. "auth" to find unprotected routes), domain and only_fallback.
+    - Middleware is reported by name only, so no signed-route keys are exposed.
     TEXT)]
-class ListRoutesTool extends AbstractAgentTool
+#[IsReadOnly]
+class RoutesTool extends AbstractAgentTool
 {
     /**
      * @return array<string, mixed>
@@ -47,27 +44,33 @@ class ListRoutesTool extends AbstractAgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
+            'name' => $schema->string()
+                ->nullable()
+                ->description('Route name for detail mode (exact match). Takes precedence over uri.'),
+            'uri' => $schema->string()
+                ->nullable()
+                ->description('Route URI for detail mode (exact match, without leading slash).'),
             'method' => $schema->string()
                 ->nullable()
-                ->description('Filter by HTTP method (GET, POST, PUT, PATCH, DELETE, etc.). Case-insensitive.'),
+                ->description('List filter by HTTP method (GET, POST, PUT, PATCH, DELETE, etc.). Case-insensitive.'),
             'uri_prefix' => $schema->string()
                 ->nullable()
-                ->description('Filter by URI prefix. Only routes whose URI starts with this value are returned.'),
+                ->description('List filter by URI prefix. Only routes whose URI starts with this value are returned.'),
             'name_pattern' => $schema->string()
                 ->nullable()
-                ->description('Filter by route name using Str::is wildcard (e.g. "api.*").'),
+                ->description('List filter by route name using Str::is wildcard (e.g. "api.*").'),
             'middleware' => $schema->string()
                 ->nullable()
-                ->description('Filter to routes that include this middleware name (short or class name).'),
+                ->description('List filter to routes that include this middleware name (short or class name).'),
             'domain' => $schema->string()
                 ->nullable()
-                ->description('Filter to routes for a specific domain.'),
+                ->description('List filter to routes for a specific domain.'),
             'exclude_middleware' => $schema->string()
                 ->nullable()
-                ->description('Exclude routes that include this middleware name (e.g. "auth" to find unprotected routes).'),
+                ->description('List filter excluding routes that include this middleware name (e.g. "auth").'),
             'only_fallback' => $schema->boolean()
                 ->nullable()
-                ->description('When true, return only fallback routes.'),
+                ->description('List filter: when true, return only fallback routes.'),
         ];
     }
 
@@ -81,19 +84,44 @@ class ListRoutesTool extends AbstractAgentTool
         // 2. Audit invocation shape (keys + types, never values).
         $this->audit($this->argumentShape($request->all()));
 
-        // 3. Resolve filter parameters.
-        $methodFilter = $request->get('method');
-        $uriPrefixFilter = $request->get('uri_prefix');
-        $namePattern = $request->get('name_pattern');
-        $middlewareFilter = $request->get('middleware');
-        $domainFilter = $request->get('domain');
-        $excludeMiddleware = $request->get('exclude_middleware');
-        $onlyFallback = (bool) $request->get('only_fallback', false);
+        // 3. A locator selects detail mode; without one the call is a list.
+        $name = $request->get('name');
+        $uri = $request->get('uri');
 
+        if (filled($name) || filled($uri)) {
+            return $this->routeDetail($name, $uri);
+        }
+
+        return $this->routeList($request);
+    }
+
+    /**
+     * One route by exact name or URI, with its defaults.
+     */
+    private function routeDetail(mixed $name, mixed $uri): Response
+    {
         /** @var Router $router */
         $router = app('router');
 
-        // 4. Build the route rows with filtering applied.
+        $route = $this->findRoute($router, $name, $uri);
+
+        if ($route === null) {
+            $locator = filled($name) ? "name={$name}" : "uri={$uri}";
+
+            return Response::error("Route not found: {$locator}");
+        }
+
+        return $this->jsonResponse($this->buildRouteRow($route, $router, withDefaults: true));
+    }
+
+    /**
+     * The filtered route snapshot wrapped in its metadata envelope.
+     */
+    private function routeList(Request $request): Response
+    {
+        /** @var Router $router */
+        $router = app('router');
+
         $routes = [];
 
         foreach ($router->getRoutes()->getRoutes() as $route) {
@@ -102,13 +130,13 @@ class ListRoutesTool extends AbstractAgentTool
             if (! $this->passesFilters(
                 row: $row,
                 route: $route,
-                methodFilter: $methodFilter,
-                uriPrefixFilter: $uriPrefixFilter,
-                namePattern: $namePattern,
-                middlewareFilter: $middlewareFilter,
-                domainFilter: $domainFilter,
-                excludeMiddleware: $excludeMiddleware,
-                onlyFallback: $onlyFallback,
+                methodFilter: $request->get('method'),
+                uriPrefixFilter: $request->get('uri_prefix'),
+                namePattern: $request->get('name_pattern'),
+                middlewareFilter: $request->get('middleware'),
+                domainFilter: $request->get('domain'),
+                excludeMiddleware: $request->get('exclude_middleware'),
+                onlyFallback: (bool) $request->get('only_fallback', false),
             )) {
                 continue;
             }
@@ -116,25 +144,47 @@ class ListRoutesTool extends AbstractAgentTool
             $routes[] = $row;
         }
 
-        // 5. Wrap in a metadata envelope and redact.
-        $result = [
+        return $this->jsonResponse([
             'routes_are_cached' => app()->routesAreCached(),
             'count' => count($routes),
             'routes' => $routes,
-        ];
+        ]);
+    }
 
-        $redacted = $this->redactor()->redactArray($result);
+    /**
+     * Locate a route by name, or by URI when no name is given.
+     *
+     * We iterate the route collection directly rather than using getByName() because
+     * routes named via the fluent ->name() chain after addRoute() may not be reflected
+     * in the collection's internal name lookup index (the index is built at addRoute
+     * time, before the fluent chain runs). Iterating ensures we find such routes.
+     *
+     * Name is the primary locator: when given, only a name match is attempted.
+     */
+    private function findRoute(Router $router, mixed $name, mixed $uri): ?Route
+    {
+        $byName = filled($name);
+        $needle = $byName ? (string) $name : ltrim((string) $uri, '/');
 
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
+        foreach ($router->getRoutes()->getRoutes() as $route) {
+            $candidate = $byName ? $route->getName() : $route->uri();
+
+            if ($candidate === $needle) {
+                return $route;
+            }
+        }
+
+        return null;
     }
 
     /**
      * Build a single route row array. Controllers are never instantiated;
-     * existence is checked via class_exists() only.
+     * existence is checked via class_exists() only. Detail mode adds `defaults`,
+     * which list rows omit to keep a large list small.
      *
      * @return array<string, mixed>
      */
-    private function buildRouteRow(Route $route, Router $router): array
+    private function buildRouteRow(Route $route, Router $router, bool $withDefaults = false): array
     {
         $actionName = $route->getActionName();
         $isClosure = $actionName === 'Closure' || $route->getAction('uses') instanceof Closure;
@@ -144,12 +194,6 @@ class ListRoutesTool extends AbstractAgentTool
         $isInvokable = ! $isClosure
             && $controllerClass !== null
             && $route->getActionMethod() === '__invoke';
-
-        // Redirect route: action dispatches via RedirectController.
-        $isRedirect = $controllerClass === RedirectController::class;
-
-        // View route: action dispatches via ViewController.
-        $isView = $controllerClass === ViewController::class;
 
         return [
             'domain' => $route->getDomain(),
@@ -162,10 +206,11 @@ class ListRoutesTool extends AbstractAgentTool
             'is_closure' => $isClosure,
             'is_invokable' => $isInvokable,
             'is_fallback' => $route->isFallback,
-            'is_redirect' => $isRedirect,
-            'is_view' => $isView,
+            'is_redirect' => $controllerClass === RedirectController::class,
+            'is_view' => $controllerClass === ViewController::class,
             'wheres' => $route->wheres,
             'prefix' => $route->getPrefix(),
+            ...($withDefaults ? ['defaults' => $route->defaults] : []),
             'middleware' => $route->gatherMiddleware(),
             'middleware_resolved' => $this->resolveMiddlewareNames($route, $router),
         ];

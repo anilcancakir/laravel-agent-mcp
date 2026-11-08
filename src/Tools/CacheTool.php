@@ -8,16 +8,24 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 /**
- * MCP tool: cache_inspect
+ * MCP tool: cache
  *
- * Inspects a single cache key WITHOUT deserializing or returning its value by
- * default. The default response is metadata only: {exists, ttl_seconds,
- * value_type}. TTL is read directly from the storage layer (the database cache
- * table's expiration column, or Redis TTL) rather than through the cache
- * repository, because Repository::get() deserializes the value (which can
- * instantiate arbitrary objects and is exactly the side effect we avoid here).
+ * One tool for the cache subsystem, split by whether a `key` is given.
+ *
+ * Without a key it returns a read-only snapshot of the configured stores, the
+ * framework optimization state, this process's opcache status (the CLI SAPI that
+ * runs an MCP stdio call usually differs from the FPM workers serving web
+ * traffic, so the payload labels that caveat) and a session_overlap_risk flag
+ * that warns when redis sessions share the cache connection, where cache key
+ * listings can surface live session IDs.
+ *
+ * With a key it inspects that single key WITHOUT deserializing or returning its
+ * value by default. TTL is read straight from the storage layer (the database
+ * cache table's expiration column, or Redis TTL) because Repository::get()
+ * deserializes the value, which can instantiate arbitrary objects.
  *
  * The raw value is the high-risk surface (a cached value may be a plaintext
  * secret or a serialized object). It is returned ONLY when ALL of these hold,
@@ -27,26 +35,23 @@ use Laravel\Mcp\Server\Attributes\Name;
  *   2. config('agent-mcp.cache.allow_value_read') is true (operator opt-in).
  *   3. The key name does NOT match the secret-token block-list.
  *
- * Any failed gate yields [REDACTED] in place of the value, never the value.
- *
- * The tool never writes (no put/forget/flush) and never deserializes a value it
- * is not allowed to reveal.
+ * Any failed gate yields [REDACTED] in place of the value, never the value. The
+ * tool never writes (no put/forget/flush, no opcache reset).
  *
  * CONNECTION BOUNDARY: the database cache store is read on the connection it is
  * configured to use (cache.stores.*.connection), which may differ from the
  * package's hardened read-only clone. Only read-only query-builder methods are
  * used; the dedicated readonly DB grant is the enforcement boundary. See the README.
  */
-#[Name('cache_inspect')]
+#[Name('cache')]
 #[Description(<<<'TEXT'
-    Inspect a single cache key's metadata, and optionally its value. Use it to check whether a key exists, its TTL, and its value type.
+    Cache health and single-key inspection. Without `key`: configured stores and drivers, whether config, routes and events are cached, an opcache summary, and a session-overlap risk flag (sessions and the cache share one redis connection, the case cache_keys guards against). With `key` (without the global prefix): whether it exists, its TTL and value type, from the default store unless `store` names another.
 
-    Usage:
-    - Omit `store` to use the default store. `key` is the cache key without the global prefix.
-    - Metadata (exists, TTL, type) is always returned. The raw value comes back only when `raw_value` is true AND the operator set cache.allow_value_read AND the key is not block-listed; otherwise it is [REDACTED].
-    - Read-only.
+    - The raw value comes back only when `raw_value` is true AND the operator set cache.allow_value_read AND the key is not block-listed; otherwise it is [REDACTED].
+    - Start without `key` for any cache investigation.
     TEXT)]
-class CacheInspectTool extends AbstractAgentTool
+#[IsReadOnly]
+class CacheTool extends AbstractAgentTool
 {
     /**
      * The redaction marker used in place of a withheld raw value.
@@ -54,7 +59,7 @@ class CacheInspectTool extends AbstractAgentTool
     private const REDACTED = '[REDACTED]';
 
     /**
-     * The optional Redis client FQCNs, referenced as strings only so the file
+     * The optional Redis client FQCN, referenced as a string only so the file
      * loads on installations without the redis extension or Predis.
      */
     private const PREDIS_CLIENT = 'Predis\Client';
@@ -65,11 +70,11 @@ class CacheInspectTool extends AbstractAgentTool
     public function schema(JsonSchema $schema): array
     {
         return [
+            'key' => $schema->string()
+                ->description('The cache key to inspect (without the global cache prefix). Omit for the cache status snapshot.'),
             'store' => $schema->string()
                 ->nullable()
-                ->description('Cache store name. Omit to use the default store.'),
-            'key' => $schema->string()
-                ->description('The cache key to inspect (without the global cache prefix).'),
+                ->description('Cache store name for the key. Omit to use the default store.'),
             'raw_value' => $schema->boolean()
                 ->nullable()
                 ->description('Request the raw cached value. Returned only when cache.allow_value_read is true and the key is not block-listed; otherwise [REDACTED].'),
@@ -86,17 +91,164 @@ class CacheInspectTool extends AbstractAgentTool
         // 2. Audit the invocation shape (keys + types, never values).
         $this->audit($this->argumentShape($request->all()));
 
-        // 3. Resolve the target store + key.
+        // 3. No key selects the status snapshot, a key selects the inspection.
+        $key = $request->get('key');
+
+        if ($key === null) {
+            return $this->jsonResponse($this->status());
+        }
+
+        return $this->inspect($request, (string) $key);
+    }
+
+    /**
+     * The status snapshot: stores, optimization state, opcache and session overlap.
+     *
+     * @return array<string, mixed>
+     */
+    private function status(): array
+    {
+        return [
+            'default' => config('cache.default'),
+            'prefix' => config('cache.prefix'),
+            'stores' => $this->stores(),
+            'optimization' => $this->optimization(),
+            'opcache' => $this->opcache(),
+            'session_overlap_risk' => $this->sessionOverlapRisk(),
+        ];
+    }
+
+    /**
+     * The configured cache stores with their driver and whether this package can
+     * introspect their keys (drives what cache_keys and the key inspection can do).
+     *
+     * @return array<string, mixed>
+     */
+    private function stores(): array
+    {
+        $stores = config('cache.stores', []);
+
+        if (! is_array($stores)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($stores as $name => $config) {
+            $driver = is_array($config) ? ($config['driver'] ?? null) : null;
+
+            $result[$name] = [
+                'driver' => $driver,
+                'introspectable' => $this->introspectable(is_string($driver) ? $driver : ''),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Whether a driver's keys can be enumerated by this package (informational; the
+     * actual enumeration lives in cache_keys and is gated separately).
+     */
+    private function introspectable(string $driver): bool
+    {
+        return in_array($driver, ['database', 'redis', 'file'], true);
+    }
+
+    /**
+     * Framework optimization state plus the on-disk cache paths, mirroring the
+     * data the artisan about/optimize commands report.
+     *
+     * @return array<string, mixed>
+     */
+    private function optimization(): array
+    {
+        return [
+            'config_cached' => app()->configurationIsCached(),
+            'routes_cached' => app()->routesAreCached(),
+            'events_cached' => app()->eventsAreCached(),
+            'config_cache_path' => app()->getCachedConfigPath(),
+            'routes_cache_path' => app()->getCachedRoutesPath(),
+            'events_cache_path' => app()->getCachedEventsPath(),
+        ];
+    }
+
+    /**
+     * opcache status for THIS process, guarded by the SAPI exposing the extension.
+     * Passing false to opcache_get_status omits the per-script cache list (large
+     * and irrelevant here). The note records the CLI-vs-FPM caveat.
+     *
+     * @return array<string, mixed>
+     */
+    private function opcache(): array
+    {
+        if (! function_exists('opcache_get_status')) {
+            return [
+                'available' => false,
+                'reason' => 'opcache extension not loaded in this SAPI',
+            ];
+        }
+
+        $status = opcache_get_status(false);
+
+        if ($status === false) {
+            return [
+                'available' => false,
+                'reason' => 'opcache is disabled in this SAPI',
+                'note' => 'This reflects the current SAPI (often CLI); the FPM workers serving web traffic may differ.',
+            ];
+        }
+
+        return [
+            'available' => true,
+            'enabled' => $status['opcache_enabled'] ?? null,
+            'note' => 'This reflects the current SAPI (often CLI); the FPM workers serving web traffic may differ.',
+            'memory_usage' => $status['memory_usage'] ?? null,
+            'statistics' => $status['opcache_statistics'] ?? null,
+        ];
+    }
+
+    /**
+     * Flag the case where the session lives in redis on the SAME connection as the
+     * default cache store. There, cache key listings can surface live session IDs,
+     * so the operator is warned before enabling cache_keys (session-in-redis
+     * key names are live session identifiers).
+     */
+    private function sessionOverlapRisk(): bool
+    {
+        if (config('session.driver') !== 'redis') {
+            return false;
+        }
+
+        $defaultStore = config('cache.default');
+        $cacheConfig = config("cache.stores.{$defaultStore}");
+
+        if (! is_array($cacheConfig) || ($cacheConfig['driver'] ?? null) !== 'redis') {
+            return false;
+        }
+
+        // Both session and cache resolve to a redis connection; an overlap on the
+        // SAME connection means cache keys and session keys share a keyspace.
+        $sessionConnection = config('session.connection') ?? 'default';
+        $cacheConnection = $cacheConfig['connection'] ?? 'default';
+
+        return $sessionConnection === $cacheConnection;
+    }
+
+    /**
+     * Resolve the target store and branch on its driver to inspect one key.
+     */
+    private function inspect(Request $request, string $key): Response
+    {
+        // 1. Resolve the target store + key.
+        if ($key === '') {
+            return Response::error('A non-empty key is required.');
+        }
+
         $storeName = $request->get('store');
         $storeName = ($storeName === null || $storeName === '')
             ? (string) config('cache.default')
             : (string) $storeName;
-
-        $key = (string) $request->get('key');
-
-        if ($key === '') {
-            return Response::error('A non-empty key is required.');
-        }
 
         $storeConfig = config("cache.stores.{$storeName}");
 
@@ -106,7 +258,7 @@ class CacheInspectTool extends AbstractAgentTool
 
         $wantsValue = (bool) $request->get('raw_value', false);
 
-        // 4. Branch on the store driver.
+        // 2. Branch on the store driver.
         $payload = match ($storeConfig['driver'] ?? null) {
             'database' => $this->inspectDatabase($storeConfig, $key, $wantsValue),
             'redis' => $this->inspectRedis($storeConfig, $key, $wantsValue),
@@ -118,7 +270,7 @@ class CacheInspectTool extends AbstractAgentTool
             ],
         };
 
-        return $this->respond($payload);
+        return $this->jsonResponse($payload);
     }
 
     /**
@@ -332,17 +484,5 @@ class CacheInspectTool extends AbstractAgentTool
     {
         return config('database.redis') !== null
             && (extension_loaded('redis') || class_exists(self::PREDIS_CLIENT));
-    }
-
-    /**
-     * Redact (defense-in-depth, last net) and emit the payload as a JSON response.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    private function respond(array $payload): Response
-    {
-        $redacted = $this->redactor()->redactArray($payload);
-
-        return Response::text(json_encode($redacted, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
     }
 }

@@ -186,6 +186,21 @@ it('blocks a sensitive tool from printing to a real terminal without --allow-tty
     expect(readStream($err))->toContain('--allow-tty');
 });
 
+it('blocks every default-OFF tool from printing to a real terminal without --allow-tty', function (string $tool): void {
+    $cmd = harness();
+    $cmd->tty = true;
+    $err = captureStream();
+    $cmd->usingErrorStream($err);
+
+    expect($cmd->callGuardSensitiveTty($tool, false))->toBeFalse();
+    expect(readStream($err))->toContain('--allow-tty');
+})->with([
+    'run_artisan',
+    'config_inspect',
+    'db_diagnostics',
+    'cache_keys',
+]);
+
 it('allows a sensitive tool to a terminal with --allow-tty', function (): void {
     $cmd = harness();
     $cmd->tty = true;

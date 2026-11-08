@@ -14,7 +14,7 @@ A secure, read-only Model Context Protocol (MCP) server for Laravel. Give Claude
 [![PHP Version](https://img.shields.io/packagist/dependency-v/anilcancakir/laravel-agent-mcp/php?style=flat-square)](https://packagist.org/packages/anilcancakir/laravel-agent-mcp)
 [![License](https://img.shields.io/packagist/l/anilcancakir/laravel-agent-mcp.svg?style=flat-square)](LICENSE)
 
-[Quick start](#quick-start) · [Why](#why-this-exists) · [Tools](#what-your-agent-can-see-25-read-only-tools) · [Two modes](#two-ways-to-connect-mcp-or-cli) · [Security](#security-model) · [FAQ](#faq)
+[Quick start](#quick-start) · [Why](#why-this-exists) · [Tools](#what-your-agent-can-see-14-tools) · [Two modes](#two-ways-to-connect-mcp-or-cli) · [Security](#security-model) · [FAQ](#faq)
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ Your AI coding agent writes migrations, queries, and config lookups against a sc
 
 laravel-agent-mcp closes that gap. It exposes a read-only endpoint on your running Laravel app so the agent reads the real schema, the real routes, the real env-key names, and the current queue state. The agent stops guessing and starts working from live truth.
 
-The reason it is safe to point an agent at: 24 of its 25 tools only read, and no tool writes to your database. The 25th, `run_artisan`, runs nothing until you allowlist a command: it ships with an empty allowlist, matches commands exactly with no wildcards, and denies any option you have not allowed. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
+The reason it is safe to point an agent at: 13 of its 14 tools only read, and no tool writes to your database. The 14th, `run_artisan`, runs nothing until you allowlist a command: it ships with an empty allowlist, matches commands exactly with no wildcards, and denies any option you have not allowed. On top of that, every database read runs through a read-only-hardened connection, a SELECT-only SQL validator, output redaction, and an audit log. You can hand the key to an agent and still explain the security model in a review.
 
 ## Quick start
 
@@ -158,23 +158,22 @@ php artisan boost:install
 php artisan boost:update --discover
 ```
 
-## What your agent can see: 24 read-only tools and one gated runner
+## What your agent can see: 14 tools
 
 Every tool is individually gated by `config('agent-mcp.tools.<name>')`. Sensitive tools are off by default; the operator opts in. Enable only what your agent use case needs.
+
+A tool with several views takes a `section` argument and has one flag that opens all of its sections. The first section is the default, and an unknown section is refused with the list of valid names.
 
 ### Database schema and queries
 
 | Tool | What it does | Default |
 |------|-------------|---------|
 | `db_schema` | Lists tables, or returns columns, indexes, and foreign keys for one table. | On |
-| `db_query` | Structured reads: find by id, where filter, or count, with bound parameters. | On |
-| `db_raw_select` | Ad-hoc SELECT validated by a SELECT-only grammar parser, auto-limited, run read-only. | On |
-| `db_index_health` | Index inventory per table; PG adds unused-index detection and seq-scan advisory. | On |
-| `db_missing_fk_indexes` | Foreign-key columns without a covering index (PG and MySQL definitive, SQLite heuristic). | On |
-| `db_table_sizes` | Row counts and storage sizes; PG adds dead-tuple stats. | On |
-| `migrations_status` | Ran migrations grouped by batch (from the `migrations` table). | On |
-| `db_slow_queries` | Top queries by mean execution time (PG `pg_stat_statements`, MySQL `performance_schema`). | **Off** |
-| `db_active_locks` | Point-in-time blocked/blocking sessions (PG and MySQL). | **Off** |
+| `db_query` | Structured reads: find by id, where filter, or count, with bound parameters. Lists return `{rows, truncated?}`. | On |
+| `db_raw_select` | Ad-hoc SELECT validated by a SELECT-only grammar parser (the statement after any CTE must be one SELECT), capped, run read-only. Returns `{rows, truncated?}`. | On |
+| `db_health` | Sections: `sizes` (default; row counts and storage sizes, PG adds dead-tuple stats), `indexes` (index inventory, PG adds unused-index detection), `missing_fk` (foreign-key columns without a covering index; PG and MySQL definitive, SQLite heuristic). Takes `limit` tables. | On |
+| `migrations_status` | Migrations grouped by batch (from the `migrations` table), with `ran_count` and `latest_batch`. | On |
+| `db_diagnostics` | Sections: `slow_queries` (default; top queries by mean execution time, PG `pg_stat_statements`, MySQL `performance_schema`), `locks` (point-in-time blocked and blocking sessions, PG and MySQL). | **Off** |
 
 ### Logs and artisan
 
@@ -187,32 +186,24 @@ Every tool is individually gated by `config('agent-mcp.tools.<name>')`. Sensitiv
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `queue_backlog` | Pending job counts per connection and queue. | On |
-| `queue_failed_jobs` | Failed job summary or per-row detail (job class, exception first line, `failed_at`). Payload is never emitted. | On |
-| `horizon_status` | Horizon workload, metrics, and supervisor state. Returns `{available:false}` when Horizon is absent. | On |
+| `queue_status` | Sections: `backlog` (default; pending job counts per connection and queue), `failed` (failed job summary or rows with job class, exception first line and `failed_at`; the payload is never emitted; takes `limit`), `horizon` (workload, metrics and supervisor state; `{available:false}` when Horizon is absent). | On |
 
 ### Cache
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `cache_status` | Store config, optimization state, opcache summary, session-overlap risk flag. | On |
-| `cache_inspect` | Key metadata (exists, TTL, type); the raw value is gated behind `cache.allow_value_read` plus a block-list. | On (value gated) |
+| `cache` | Without `key`: store config, optimization state, opcache summary, session-overlap risk flag. With `key`: metadata (exists, TTL, type); the value is returned only with `raw_value`, `cache.allow_value_read` and a key the block-list allows. | On (value gated) |
 | `cache_keys` | Lists cache keys with TTLs (database and Redis); excludes session keys. | **Off** |
 
 ### Application introspection
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `list_routes` | All routes with methods, URI, name, controller, middleware, and filters. | On |
-| `inspect_route` | Deep dive on one route by name or URI. | On |
-| `app_about` | Versions, environment, drivers, opcache (mirrors `php artisan about`). | On |
-| `schedule_list` | Scheduled events with cron expression, next run, and flags. | On |
-| `event_list` | Registered listeners (including wildcards); flags `ShouldQueue` and `ShouldBroadcast`. | On |
-| `storage_info` | Disk config (credentials stripped) and symlink map. | On |
-| `env_keys` | Environment variable names only. Values are never returned. | On |
+| `routes` | All routes with methods, URI, name, controller, middleware, and filters; or one route in depth by `name` or `uri`. | On |
+| `app_info` | Sections: `about` (default; versions, environment, drivers, opcache, narrowed with `parts`), `env_keys` (variable names only, never values), `storage` (disk config with credentials stripped, and the symlink map), `schedule` (cron expression, next run, flags), `events` (listeners including wildcards; flags `ShouldQueue` and `ShouldBroadcast`). | On |
 | `config_inspect` | Config key tree with types; values are triple-gated (opt-in + safe-list + block-list). | **Off** |
 
-Every call is audited (tool name and argument shape, never values) and passes through best-effort output redaction.
+Every call is audited (tool name, resolved section and argument shape, never values) and passes through best-effort output redaction. Answers are compact JSON and capped: `agent-mcp.query.max_rows` (default 50) bounds `db_query` and `db_raw_select`, and `agent-mcp.logs.max_lines` (default 100) bounds `read_logs`. A capped answer carries `truncated: true` only when output was cut.
 
 ## How it works
 
@@ -271,13 +262,13 @@ Three commands call the tools directly, honoring the same per-tool flags, audit 
 php artisan agent-mcp:tools                 # list callable tools (--all includes disabled ones)
 php artisan agent-mcp:schema db_query       # print a tool's input schema
 php artisan agent-mcp:call db_schema '{"table":"users"}'
-php artisan agent-mcp:call app_about --raw | jq '.environment'
+php artisan agent-mcp:call app_info '{"section":"about"}' --raw | jq '.environment'
 ```
 
 By default the command runs the tool in-process (local mode). Remote mode is auto-selected when a remote URL is configured: either a `url` committed in `.agent-mcp.json` (set via `agent-mcp:install --url=`) or the `AGENT_MCP_URL` env variable (env takes precedence). Set `AGENT_MCP_KEY` in env to provide the Bearer token. `--local` and `--remote` force the choice. The key travels only in the Authorization header, never in command output. The URL must be `https` (loopback `http` excepted); a configured `http://` non-loopback URL errors loudly rather than falling back to local.
 
 > [!WARNING]
-> Sensitive tools (`config_inspect`, `db_slow_queries`, `db_active_locks`, `cache_keys`, `run_artisan`) can land in terminal scrollback. `agent-mcp:call` refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`; piping or redirecting is always allowed. Do not add `agent-mcp:*` to the `run_artisan` allowlist.
+> Sensitive tools (`run_artisan`, `config_inspect`, `db_diagnostics`, `cache_keys`) can land in terminal scrollback. `agent-mcp:call` refuses to print a sensitive tool's result to a terminal unless you pass `--allow-tty`; piping or redirecting is always allowed. Do not add `agent-mcp:*` to the `run_artisan` allowlist.
 
 ## Security model
 
@@ -309,7 +300,7 @@ Never expose the endpoint with `APP_DEBUG=true`. The package strips stack traces
 
 ### Sensitive-tool opt-in model
 
-`config_inspect`, `db_slow_queries`, `db_active_locks`, and `cache_keys` are off by default because they can surface sensitive information. Value-returning tools (`config_inspect`, `cache_inspect`) gate values twice: an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then a block-list that unconditionally redacts known-sensitive dot-paths. The block-list always wins, even with explicit opt-in.
+`run_artisan`, `config_inspect`, `db_diagnostics`, and `cache_keys` are off by default because they can surface sensitive information. Value-returning tools (`config_inspect`, and `cache` with a `key`) gate values twice: an explicit opt-in flag (`reveal_values`, `cache.allow_value_read`), then a block-list that unconditionally redacts known-sensitive dot-paths. The block-list always wins, even with explicit opt-in.
 
 ## Read-only database access
 
@@ -323,7 +314,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
 ```
 
-Do not add the role to `pg_read_server_files`, do not grant `COPY` or `lo_*` (large object) privileges, and do not add it to `pg_execute_server_program`. For full `db_slow_queries` and `db_active_locks` visibility, grant `pg_monitor` (or `pg_read_all_stats` on pre-10), and enable `pg_stat_statements` in `postgresql.conf`.
+Do not add the role to `pg_read_server_files`, do not grant `COPY` or `lo_*` (large object) privileges, and do not add it to `pg_execute_server_program`. `db_diagnostics` needs both `pg_stat_statements` enabled in `postgresql.conf` and `pg_read_all_stats` (or `pg_monitor`) granted to the role.
 
 ### MySQL
 
@@ -333,7 +324,7 @@ GRANT SELECT ON your_database.* TO 'agent_readonly'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Do not grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE`, or `DROP`. For `db_slow_queries`, also `GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';`.
+Do not grant `FILE`, `SUPER`, `INSERT`, `UPDATE`, `DELETE`, or `DROP`. For `db_diagnostics`, also `GRANT SELECT ON performance_schema.* TO 'agent_readonly'@'localhost';`.
 
 ### SQLite
 
@@ -380,7 +371,7 @@ laravel-agent-mcp is complementary to the official Laravel AI packages, not a re
 | | laravel-agent-mcp | laravel/mcp | laravel/boost | raw read-only DB user |
 |---|---|---|---|---|
 | Purpose | Give agents read-only access to a running app | SDK to build your own MCP server | Dev-time agent context on localhost | Direct SQL access |
-| Ready-made tools | 25 (DB, logs, queue, cache, routes, config) | None (you build them) | ~15 dev tools | None |
+| Ready-made tools | 14 (DB, logs, queue, cache, routes, config) | None (you build them) | ~15 dev tools | None |
 | Read-only enforcement | SELECT validator + hardened connection + redaction | You implement it | DB query tool runs any SQL | DB grant only |
 | Auth | Single Bearer key, no Sanctum/user/DB | Sanctum / OAuth (your wiring) | Local stdio, no auth | DB credentials |
 | CLI + remote | Yes (`agent-mcp:call`, local and remote) | Local stdio | Local stdio | n/a |
@@ -417,7 +408,7 @@ Yes. Any client that supports HTTP MCP transport works with the HTTP endpoint. C
 
 ### How is this different from Laravel Boost?
 
-Boost is a dev-time tool for coding agents on your local machine, and its database query tool can run any SQL. laravel-agent-mcp is a production-safe, read-only, key-authenticated server with a 25-tool ops suite and a CLI, designed for remote and server-admin use. They are complementary.
+Boost is a dev-time tool for coding agents on your local machine, and its database query tool can run any SQL. laravel-agent-mcp is a production-safe, read-only, key-authenticated server with a 14-tool ops suite and a CLI, designed for remote and server-admin use. They are complementary.
 
 ### What databases are supported?
 
