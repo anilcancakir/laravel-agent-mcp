@@ -157,6 +157,24 @@ it('audits the resolved section next to the argument shape', function (): void {
     expect($captured['arg_shape'])->toBe(['mode' => 'string', 'section' => 'string']);
 });
 
+it('audits a call whose section is refused, without recording the refused value', function (): void {
+    $captured = null;
+
+    Log::shouldReceive('channel')->with('agent-mcp-audit')->once()->andReturnSelf();
+    Log::shouldReceive('info')->once()->withArgs(function (string $message, array $context) use (&$captured): bool {
+        $captured = $context;
+
+        return $message === 'mcp.tool_invoked';
+    });
+
+    StubAgentServer::tool(StubAgentTool::class, ['mode' => 'sectioned', 'section' => 'bogus'])
+        ->assertHasErrors();
+
+    expect($captured)->not->toBeNull();
+    expect($captured['arg_shape'])->toBe(['mode' => 'string', 'section' => 'string']);
+    expect($captured)->not->toHaveKey('section');
+});
+
 it('hides the tool via shouldRegister when disabled in config (best-effort UX)', function (): void {
     config()->set('agent-mcp.tools.stub-agent-tool', false);
 

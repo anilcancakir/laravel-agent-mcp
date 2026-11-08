@@ -7,13 +7,14 @@ use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Database\Connection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
 
 /**
  * Shared base for every agent MCP tool: the tool-enabled gate plus the common
- * readonly / redaction / audit pipeline the 5 concrete tools inherit.
+ * readonly / redaction / audit pipeline every concrete tool inherits.
  *
  * Authentication is the HTTP layer's job (KeyAuthMiddleware enforces the single
  * server-admin key, fail-closed, before the MCP route is reached). The tool no
@@ -110,14 +111,22 @@ abstract class AbstractAgentTool extends Tool
 
         $message = 'The section must be one of: '.implode(', ', $sections).'.';
 
-        $validated = $request->validate(
-            ['section' => ['required', 'string', Rule::in($sections)]],
-            [
-                'section.required' => $message,
-                'section.string' => $message,
-                'section.in' => $message,
-            ],
-        );
+        try {
+            $validated = $request->validate(
+                ['section' => ['required', 'string', Rule::in($sections)]],
+                [
+                    'section.required' => $message,
+                    'section.string' => $message,
+                    'section.in' => $message,
+                ],
+            );
+        } catch (ValidationException $exception) {
+            // A refused section is still an invocation: record its argument shape (never the
+            // refused value, and no section) before the refusal reaches the caller.
+            $this->audit($this->argumentShape($request->all()));
+
+            throw $exception;
+        }
 
         return $validated['section'];
     }
