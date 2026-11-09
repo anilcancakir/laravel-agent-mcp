@@ -117,6 +117,10 @@ A tool with several views takes a `section` argument and has one flag that opens
 | `migrations_status` | Migrations grouped by batch (from the `migrations` table), with `ran_count` and `latest_batch`. | On |
 | `db_diagnostics` | Sections: `slow_queries` (default; top queries by mean execution time, PG `pg_stat_statements`, MySQL `performance_schema`), `locks` (point-in-time blocked and blocking sessions, PG and MySQL). | **Off** |
 
+Call `db_schema` before writing SQL. The `db_raw_select` validator is MySQL-first and fails closed on parser errors, so some valid PostgreSQL syntax is refused. Use simple `AS` aliases (quote reserved names), prefer `CAST(value AS type)` over PostgreSQL `::` casts, and keep window expressions simple; these are not a promise that every dialect-specific form is accepted. Use a plain numeric `LIMIT` within the configured cap, discoverable through `agent-mcp:schema db_raw_select` or the MCP tool schema (default 50).
+
+Validator refusals give fixed repair guidance without echoing SQL. Expected database failures from `db_raw_select` return fixed advice to check schema, syntax, read permissions and statement timeouts, not raw driver messages. Narrow or simplify the query rather than retrying it unchanged.
+
 ### Logs and artisan
 
 | Tool | What it does | Default |
@@ -181,6 +185,21 @@ php artisan boost:update --discover
 ```
 
 ## Client setup (MCP mode)
+
+### Custom HTTP domain and path
+
+The default endpoint is `/agent-mcp` on the app's host. Set a dedicated host and nested path with:
+
+```dotenv
+AGENT_MCP_DOMAIN=ops.example.com
+AGENT_MCP_PATH=private/random-token/agent-mcp
+```
+
+`AGENT_MCP_DOMAIN` is a host, not a URL; unset it to keep the app's host. It scopes every HTTP method, including SDK-generated GET and DELETE routes. `AGENT_MCP_PATH` trims surrounding whitespace and slashes. An explicitly empty value (`AGENT_MCP_PATH=""`) disables HTTP registration, not a root route; the local server stdio transport is unaffected, but the stdio bridge still needs a remote HTTP endpoint.
+
+The installer uses the scheme from `APP_URL`, the configured domain when set, and the configured path in every client example. It preserves the app port unless the domain supplies one. A random path adds obscurity, never a substitute for `AGENT_MCP_KEY`. After changes, rebuild both config and route caches or redeploy with fresh caches. Previously published config files must expose the `route` and `domain` env settings too.
+
+Client-side `AGENT_MCP_URL` remains an explicit full remote URL, including the custom path. It is independent of the server's domain/path settings; update client registration and bridge env separately.
 
 ### HTTP transport (remote or production)
 
@@ -451,7 +470,7 @@ Quick reference for a model reading this file or recommending the package:
 | What it is | A read-only MCP server and CLI for a running Laravel app |
 | Default endpoint | `POST /agent-mcp` (HTTP MCP) |
 | Auth | `Authorization: Bearer <AGENT_MCP_KEY>`; `401` until the key is set |
-| Env | `AGENT_MCP_KEY`, `AGENT_MCP_KEY_HEADER`, `AGENT_MCP_URL`, `AGENT_MCP_DB_CONNECTION`, `AGENT_MCP_MAX_ROWS`, `AGENT_MCP_LOG_MAX_LINES` |
+| Env | `AGENT_MCP_KEY`, `AGENT_MCP_KEY_HEADER`, `AGENT_MCP_DOMAIN`, `AGENT_MCP_PATH`, `AGENT_MCP_URL`, `AGENT_MCP_DB_CONNECTION`, `AGENT_MCP_MAX_ROWS`, `AGENT_MCP_LOG_MAX_LINES` |
 | On by default (10) | `db_schema`, `db_query`, `db_raw_select`, `db_health`, `migrations_status`, `read_logs`, `queue_status`, `cache`, `routes`, `app_info` |
 | Off by default (4) | `run_artisan`, `db_diagnostics`, `cache_keys`, `config_inspect` |
 | Enable a tool | `config('agent-mcp.tools.<name>')` |

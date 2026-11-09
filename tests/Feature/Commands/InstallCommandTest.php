@@ -173,6 +173,57 @@ it('prints the app URL in the HTTP block in mcp mode', function (): void {
         ->assertOk();
 });
 
+it('uses the configured endpoint in every mcp output', function (
+    string $appUrl,
+    ?string $domain,
+    string $path,
+    string $url,
+): void {
+    config()->set([
+        'app.url' => $appUrl,
+        'agent-mcp.domain' => $domain,
+        'agent-mcp.route' => $path,
+        'agent-mcp.key' => 'never-print-this-server-key',
+    ]);
+
+    artisan('agent-mcp:install', ['--mode' => 'mcp', '--no-inject' => true])
+        ->expectsOutputToContain('"url": "'.$url.'"')
+        ->expectsOutputToContain('"AGENT_MCP_URL": "'.$url.'"')
+        ->expectsOutputToContain(
+            'claude mcp add --transport http agent-mcp '.escapeshellarg($url)
+            .' --header "Authorization: Bearer YOUR_KEY_HERE"',
+        )
+        ->expectsOutputToContain('claude mcp add --transport stdio agent-mcp -- php artisan agent-mcp:stdio')
+        ->doesntExpectOutputToContain('never-print-this-server-key')
+        ->assertOk();
+})->with([
+    'default' => ['https://example.test/', null, 'agent-mcp', 'https://example.test/agent-mcp'],
+    'app base path' => ['http://localhost:8000/app/', null, '/agent-mcp/', 'http://localhost:8000/app/agent-mcp'],
+    'custom domain and path' => [
+        'https://app.test', 'ops.test', " /private/nested/ \t", 'https://ops.test/private/nested',
+    ],
+    'app port' => ['http://localhost:8000', 'ops.test', 'private/mcp', 'http://ops.test:8000/private/mcp'],
+    'domain port' => ['https://app.test:8443', 'ops.test:9443', 'private/mcp', 'https://ops.test:9443/private/mcp'],
+    'shell metacharacter' => ['https://app.test', null, 'private/mcp;id', 'https://app.test/private/mcp;id'],
+]);
+
+it('does not advertise an HTTP endpoint when the path is empty', function (string $path): void {
+    config()->set([
+        'app.url' => 'https://example.test',
+        'agent-mcp.route' => $path,
+    ]);
+
+    artisan('agent-mcp:install', ['--mode' => 'mcp', '--no-inject' => true])
+        ->expectsOutputToContain('HTTP endpoint disabled: agent-mcp.route is empty.')
+        ->expectsOutputToContain('The local server stdio transport is unaffected.')
+        ->expectsOutputToContain('The stdio bridge requires an explicit remote AGENT_MCP_URL.')
+        ->doesntExpectOutputToContain('https://example.test')
+        ->doesntExpectOutputToContain('"type": "http"')
+        ->doesntExpectOutputToContain('"AGENT_MCP_URL":')
+        ->doesntExpectOutputToContain('claude mcp add')
+        ->assertOk();
+})->with(['', " / \t/ "]);
+
 it('defaults to the mcp .mcp.json blocks on a bare run', function (): void {
     artisan('agent-mcp:install', ['--no-inject' => true])
         ->expectsChoice('Install mode', 'mcp', ['mcp', 'cli'])

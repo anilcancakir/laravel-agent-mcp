@@ -27,7 +27,9 @@ Structured, bound read of one table. ON.
 
 One ad-hoc SELECT or read-only CTE for joins, subqueries, aggregates and window functions. ON.
 - `sql` (required). Writes, stacked statements and file functions are refused before execution, and a rejection never echoes the SQL.
-- An explicit `LIMIT` must be a plain number within the `max_rows` cap, otherwise the call is refused; without one the cap applies.
+- Call `db_schema` first. The validator is MySQL-first and fails closed on any parser error; some valid PostgreSQL syntax is refused. Use simple `AS` aliases, quote reserved alias names, and prefer `CAST(value AS type)` over `::`. Simplify window expressions when refused; dialect-specific forms are not guaranteed.
+- An explicit `LIMIT` must be a plain number within the configured `max_rows` cap (default 50), otherwise the call is refused; without one the cap applies. The MCP input schema and `agent-mcp:schema db_raw_select` expose the current numeric cap.
+- Validator refusals give fixed repair hints without echoing SQL. Expected database query failures give fixed advice to check schema, syntax, read permissions and timeouts, never raw driver text. Narrow or simplify before retrying.
 - Returns `{rows, truncated?}`.
 
 ## migrations_status

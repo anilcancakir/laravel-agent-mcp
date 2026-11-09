@@ -38,7 +38,7 @@ Tool::handle = authorize -> audit -> read-only work -> redact
 
 ## Flows
 
-1. HTTP call: `AgentMcpServiceProvider::registerTransports` mounts `AgentMcpServer` on the configured route with the configured middleware (`KeyAuthMiddleware`, then `throttle:agent-mcp`). `StripsErrorTraces::handle` wraps the call, laravel/mcp dispatches `tools/call`, and `AbstractAgentTool::jsonResponse` redacts the answer.
+1. HTTP call: `src/AgentMcpServiceProvider.php:registerTransports` skips HTTP for an empty trimmed path, leaving local stdio independent. A domain group scopes every SDK-generated method; applying the domain only to the returned POST route would leave GET and DELETE unscoped. POST retains `KeyAuthMiddleware`, then `throttle:agent-mcp`. `StripsErrorTraces::handle` wraps the call, laravel/mcp dispatches `tools/call`, and `AbstractAgentTool::jsonResponse` redacts the answer.
 2. `agent-mcp:call`: `CallToolCommand::handle` runs `AbstractMcpCliCommand::guardSensitiveTty` before it picks a mode. `resolveMode` takes `--local` or `--remote`, else remote when `RemoteToolClient::configured` finds `AGENT_MCP_URL` or the committed `.agent-mcp.json` url. Local calls `invokeLocal` (container call on `handle`); remote calls `RemoteToolClient::callTool`, which refuses non-https URLs through `RemoteUrl::valid`.
 3. `db_raw_select`: `DbRawSelectTool::handle` authorizes, audits, then `SelectStatementValidator::validate` (one statement, read-only CTE tail, tokeniser-agreement checks, forbidden names). A top-level LIMIT above the cap is refused; without one the tool appends `LIMIT max_rows + 1` and sets `truncated` only when the extra row appears. `ReadonlyConnectionResolver::connection` returns the dedicated connection or a hardened clone named `agent-mcp-readonly`.
 4. `agent-mcp:install`: `InstallCommand::handle` resolves the mode (`--mode`, prompt, default `mcp`), validates and commits the url through `InstallMode::write`, publishes config, then injects the guideline and skill unless boost is installed (`class_exists` on a string FQCN) and `--inject` is absent.
@@ -67,7 +67,7 @@ Tool::handle = authorize -> audit -> read-only work -> redact
 
 ## Cross-cutting
 
-- Errors: a denied tool returns fixed text; a refused section is a `ValidationException` thrown from `requestedSection` after the call is audited. CLI exit codes come from the tool's `isError`.
+- Errors: a denied tool returns fixed text; a refused section is a `ValidationException` thrown from `requestedSection` after the call is audited. `src/Tools/DbRawSelectTool.php` turns expected `QueryException` failures into fixed schema/syntax/permission/timeout guidance, without reporting SQL or driver text; unexpected failures still reach the existing trace-stripping boundary. `src/Sql/SelectStatementValidator.php` fails closed on parser errors and gives fixed repair hints, not SQL or parser excerpts. CLI exit codes come from the tool's `isError`.
 - Configuration: tool flags are config only. The HTTP key comes from `config('agent-mcp.key')`; the CLI and the stdio bridge read `AGENT_MCP_KEY` and `AGENT_MCP_URL` from the environment, bypassing config caching. `.agent-mcp.json` holds only `mode` and `url`; `AGENT_MCP_URL` overrides it.
 - Testing: Pest on Testbench with SQLite `:memory:` for both `testbench` and `readonly`, package config loaded from file. Every database tool test sets `agent-mcp.connection` to `readonly`.
 
@@ -80,4 +80,4 @@ Tool::handle = authorize -> audit -> read-only work -> redact
 - `AgentMcpServiceProvider` and `KeyAuthMiddleware` each carry a copy of `presentedKey`; the rate-limit bucket and the auth check must read the same credential.
 - `CallToolCommand` catches only `RemoteInvocationException` and `RuntimeException`, so a `ValidationException` from a local call reaches Artisan's renderer.
 
-Last reviewed: 2026-11-09 after the 2.0 merge.
+Last reviewed: 2026-11-09 after HTTP domain scoping and raw SQL failure guidance.
