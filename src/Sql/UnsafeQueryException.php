@@ -13,6 +13,16 @@ use RuntimeException;
  */
 final class UnsafeQueryException extends RuntimeException
 {
+    /** Return fixed recovery guidance without exposing SQL or parser details. */
+    public static function unsupportedSyntax(): self
+    {
+        return new self(
+            'The SELECT syntax is not supported by the read-only validator. '
+            .'Use simple aliases with AS, quote reserved-word aliases, and prefer CAST, LIMIT and window functions. '
+            .'Simplify the query and retry.'
+        );
+    }
+
     public static function notReadOnlySelect(): self
     {
         return new self('The query was rejected: only a single read-only SELECT statement is allowed.');

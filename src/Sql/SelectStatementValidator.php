@@ -147,7 +147,7 @@ final class SelectStatementValidator
         //    allowlist rejects on the first sign of deviation rather than
         //    guessing intent (catches data-writing CTEs, INTO clauses, garbage).
         if ($parser->errors !== []) {
-            throw UnsafeQueryException::notReadOnlySelect();
+            throw UnsafeQueryException::unsupportedSyntax();
         }
 
         // 3. Exactly one statement: a trailing ';'-separated statement (stacked
