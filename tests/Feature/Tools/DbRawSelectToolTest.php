@@ -2,12 +2,19 @@
 
 use Anilcancakir\LaravelAgentMcp\Database\ReadonlyConnectionResolver;
 use Anilcancakir\LaravelAgentMcp\Tools\DbRawSelectTool;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
+
+use function Pest\Laravel\withHeaders;
+use function PHPUnit\Framework\assertStringContainsString;
+use function PHPUnit\Framework\assertStringNotContainsString;
 
 /**
  * Minimal MCP server that registers only db_raw_select, so the laravel/mcp testing
@@ -261,6 +268,114 @@ it('refuses an explicit LIMIT above the cap or not a plain number, naming the ca
     'placeholder row count' => 'SELECT id FROM users LIMIT ?',
     'cte limit above the cap' => 'WITH r AS (SELECT id FROM users) SELECT * FROM r LIMIT 1000',
 ]);
+
+it('advertises the current numeric row cap and portable syntax in its schema', function (): void {
+    config()->set('agent-mcp.query.max_rows', 37);
+
+    $description = app(DbRawSelectTool::class)->toArray()['inputSchema']['properties']['sql']['description'];
+
+    expect($description)->toContain('37', 'AS', 'CAST', 'LIMIT', 'window functions');
+});
+
+it('returns safe guidance for missing SQLite tables and columns', function (string $sql): void {
+    seedReadonlyUsers();
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => $sql])
+        ->assertHasErrors(['db_schema', 'syntax'])
+        ->assertDontSee(['private_missing', 'SQLSTATE', 'SELECT * FROM', 'Connection:', '.php']);
+})->with([
+    'table' => 'SELECT * FROM private_missing',
+    'column' => 'SELECT private_missing FROM users',
+]);
+
+it('maps structured database errors without exposing driver details', function (
+    string $state,
+    int $driverCode,
+    string $guidance,
+): void {
+    $previous = new PDOException('private_driver_detail secret-binding private_schema', 0);
+    $previous->errorInfo = [$state, $driverCode, 'private_driver_detail'];
+    $exception = new QueryException('private_connection', 'SELECT secret_sql', ['secret-binding'], $previous);
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('select')->once()->andThrow($exception);
+    $resolver = Mockery::mock(ReadonlyConnectionResolver::class);
+    $resolver->shouldReceive('connection')->once()->andReturn($connection);
+    app()->instance(ReadonlyConnectionResolver::class, $resolver);
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT 1'])
+        ->assertHasErrors([$guidance])
+        ->assertDontSee([
+            'private_driver_detail', 'secret-binding', 'private_schema', 'private_connection',
+            'secret_sql', 'SELECT secret_sql', 'SQLSTATE', '.php',
+        ]);
+})->with([
+    'postgres table' => ['42P01', 7, 'db_schema'],
+    'postgres column' => ['42703', 7, 'db_schema'],
+    'mysql table' => ['42S02', 1146, 'db_schema'],
+    'mysql column' => ['42S22', 1054, 'db_schema'],
+    'postgres syntax' => ['42601', 7, 'syntax'],
+    'mysql syntax or access' => ['42000', 1064, 'syntax'],
+    'postgres permission' => ['42501', 7, 'operator'],
+    'authentication' => ['28000', 1045, 'operator'],
+    'postgres timeout' => ['57014', 7, 'narrow'],
+    'odbc timeout' => ['HYT00', 0, 'narrow'],
+    'sqlite ambiguous' => ['HY000', 1, 'syntax'],
+    'mysql timeout' => ['HY000', 3024, 'narrow'],
+    'unknown state' => ['private_state_secret', 9999, 'query failed'],
+]);
+
+it('returns fixed connection advice for resolver failures', function (): void {
+    config()->set('agent-mcp.connection', 'private_connection_secret');
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT 1'])
+        ->assertHasErrors(['connection is unavailable', 'operator'])
+        ->assertDontSee('private_connection_secret');
+});
+
+it('lets unexpected execution bugs propagate', function (): void {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('select')->once()->andThrow(new RuntimeException('Unexpected execution bug'));
+    $resolver = Mockery::mock(ReadonlyConnectionResolver::class);
+    $resolver->shouldReceive('connection')->once()->andReturn($connection);
+    app()->instance(ReadonlyConnectionResolver::class, $resolver);
+
+    expect(fn () => app(DbRawSelectTool::class)->handle(new Request(['sql' => 'SELECT 1'])))
+        ->toThrow(RuntimeException::class, 'Unexpected execution bug');
+});
+
+it('handles expected query failures over HTTP without reporting them', function (): void {
+    config()->set('agent-mcp.key', 'raw-select-test-key');
+    config()->set('app.debug', true);
+    Exceptions::fake();
+
+    $response = withHeaders(['Authorization' => 'Bearer raw-select-test-key'])
+        ->postJson('/agent-mcp', [
+            'jsonrpc' => '2.0',
+            'id' => 91,
+            'method' => 'tools/call',
+            'params' => [
+                'name' => 'db_raw_select',
+                'arguments' => ['sql' => 'SELECT * FROM private_missing'],
+            ],
+        ]);
+
+    $response->assertOk()->assertJsonPath('result.isError', true);
+    $body = $response->getContent();
+    assertStringContainsString('db_schema', $body);
+
+    foreach (['private_missing', 'SQLSTATE', 'SELECT * FROM', 'Stack trace', base_path()] as $secret) {
+        assertStringNotContainsString($secret, $body);
+    }
+    Exceptions::assertNothingReported();
+});
+
+it('gives safe syntax guidance for an unquoted reserved alias', function (): void {
+    seedReadonlyUsers();
+
+    DbRawSelectTestServer::tool(DbRawSelectTool::class, ['sql' => 'SELECT id AS out FROM users'])
+        ->assertHasErrors(['syntax', 'AS'])
+        ->assertDontSee(['SELECT id AS out', 'users', 'SQLSTATE']);
+});
 
 it('is annotated read-only', function (): void {
     expect(app(DbRawSelectTool::class)->toArray()['annotations'])

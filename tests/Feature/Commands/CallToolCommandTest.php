@@ -61,6 +61,23 @@ it('invokes an enabled tool locally and prints its payload with exit 0', functio
     expect($result['stdout'])->toContain('environment');
 });
 
+it('returns safe database failure guidance locally with a failure exit code', function (): void {
+    config()->set('agent-mcp.tools.db_raw_select', true);
+    config()->set('agent-mcp.connection', 'readonly');
+
+    $result = runCall([
+        'tool' => 'db_raw_select',
+        'input' => '{"sql":"SELECT * FROM private_missing"}',
+        '--local' => true,
+    ]);
+
+    expect($result['status'])->toBe(1);
+    expect($result['stdout'])->toContain('db_schema', 'syntax');
+    expect($result['stderr'])->toBe('');
+    expect($result['stdout'].$result['stderr'])
+        ->not->toContain('private_missing', 'SQLSTATE', 'SELECT * FROM', 'Connection:', '.php');
+});
+
 it('reads JSON arguments from STDIN when the input argument is omitted', function (): void {
     $result = runCall(['tool' => 'app_info'], '{}');
 

@@ -51,7 +51,8 @@ A genuine agent-mcp-side bug per the trigger table above. Before drafting, re-ch
 - `[REDACTED]` values: best-effort redaction by design, not a guarantee.
 - Capped or truncated results (`truncated: true`), or an empty `db_diagnostics` locks section (point-in-time snapshot): documented.
 - A consumer-app error surfaced through `read_logs`: the bug lives in the application's own code.
-- `db_raw_select` rejecting a statement that is not SELECT-only: the validator working as designed.
+- `db_raw_select` rejecting a statement that is not SELECT-only, or a PostgreSQL form its MySQL-first parser cannot parse: fail-closed validation, not evidence that the database rejects the SQL. Call `db_schema` first, use simple `AS` aliases (quote reserved names), `CAST` rather than `::`, and simpler window expressions. Check `agent-mcp:schema db_raw_select` for the numeric `LIMIT` cap.
+- Fixed schema, syntax, read-permission or timeout advice from `db_raw_select`: an expected database query failure, deliberately without SQL or raw driver text. Inspect the schema and simplify or narrow the query before retrying.
 
 A real CLI-side bug looks like the opposite of the above: `agent-mcp:call` printing a sensitive tool's result to a TTY without `--allow-tty`, the server key (`AGENT_MCP_KEY`) appearing in stdout or stderr in remote mode, a tool error exiting zero, a malformed JSON payload on stdout, or `agent-mcp:install` exiting non-zero on a clean app.
 

@@ -8,6 +8,7 @@ use Anilcancakir\LaravelAgentMcp\Sql\SelectStatementValidator;
 use Anilcancakir\LaravelAgentMcp\Sql\UnsafeQueryException;
 use Anilcancakir\LaravelAgentMcp\Support\OutputRedactor;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Database\QueryException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
@@ -17,6 +18,7 @@ use PhpMyAdmin\SqlParser\Parser;
 use PhpMyAdmin\SqlParser\Statements\SelectStatement;
 use PhpMyAdmin\SqlParser\Statements\WithStatement;
 use PhpMyAdmin\SqlParser\TokenType;
+use RuntimeException;
 
 /**
  * MCP tool db_raw_select: run an ad-hoc, read-only SELECT supplied as raw SQL.
@@ -46,6 +48,7 @@ use PhpMyAdmin\SqlParser\TokenType;
     - One SELECT or read-only CTE; writes, stacked statements and file functions are refused before execution.
     - Rows are capped at agent-mcp.query.max_rows: omit LIMIT to get the cap with truncated true when cut, or give a LIMIT within it.
     - Call db_schema first for exact table and column names.
+    - Use simple aliases with AS; quote reserved-word aliases. Prefer CAST, LIMIT and window functions for portable SELECT syntax.
     TEXT)]
 #[IsReadOnly]
 class DbRawSelectTool extends AbstractAgentTool
@@ -74,13 +77,17 @@ class DbRawSelectTool extends AbstractAgentTool
      */
     public function schema(JsonSchema $schema): array
     {
+        $maxRows = (int) config('agent-mcp.query.max_rows', 50);
+
         return [
             'sql' => $schema->string()
                 ->required()
                 ->description(
                     'A single read-only SELECT statement. Writes, multiple statements, '
                     .'file/side-effect functions, and non-SELECT statements are rejected. '
-                    .'A LIMIT above agent-mcp.query.max_rows is refused; without one the cap is applied.'
+                    ."A LIMIT above {$maxRows} rows (agent-mcp.query.max_rows) is refused; "
+                    .'without one the cap is applied. Use simple aliases with AS; quote reserved-word aliases. '
+                    .'Prefer CAST, LIMIT and window functions for portable SELECT syntax.'
                 ),
         ];
     }
@@ -102,10 +109,8 @@ class DbRawSelectTool extends AbstractAgentTool
         //    the matched token, and any driver detail.
         try {
             $this->validator->validate($sql);
-        } catch (UnsafeQueryException) {
-            return Response::error(
-                'The query was rejected: only a single read-only SELECT statement is allowed.'
-            );
+        } catch (UnsafeQueryException $exception) {
+            return Response::error($exception->getMessage());
         }
 
         // 4. Bound the result. An explicit LIMIT stands only when it is a plain number
@@ -128,7 +133,17 @@ class DbRawSelectTool extends AbstractAgentTool
 
         // 5. Execute on the hardened read-only connection. Validation has already
         //    passed; the connection's read-only enforcement remains the final guard.
-        $rows = $this->readonly()->select($sql);
+        try {
+            $connection = $this->readonly();
+        } catch (RuntimeException) {
+            return Response::error('The read-only connection is unavailable. Ask the operator to check its configuration.');
+        }
+
+        try {
+            $rows = $connection->select($sql);
+        } catch (QueryException $exception) {
+            return Response::error($this->queryFailureAdvice($exception));
+        }
 
         // 6. Cut to the cap; jsonResponse() redacts what is left and substitutes bytes
         //    that are not UTF-8, so a binary column cannot fail the encoding.
@@ -144,6 +159,28 @@ class DbRawSelectTool extends AbstractAgentTool
         }
 
         return $this->jsonResponse($payload);
+    }
+
+    /**
+     * Classify structured driver codes only; driver messages can contain SQL, names and secrets.
+     */
+    private function queryFailureAdvice(QueryException $exception): string
+    {
+        $state = $exception->errorInfo[0] ?? null;
+        $driverCode = $exception->errorInfo[1] ?? null;
+
+        return match (true) {
+            in_array($state, ['42P01', '42703', '42S02', '42S22'], true) => 'A table or column was not found. Call db_schema for exact names before retrying.',
+            in_array($state, ['42501', '28000', '28P01'], true),
+            $state === '42000' && in_array($driverCode, [1044, 1142, 1143, 1227], true) => 'Database access was refused. Ask the operator to check read-only credentials and SELECT permissions.',
+            in_array($state, ['57014', 'HYT00', 'HYT01'], true),
+            $state === 'HY000' && in_array($driverCode, [1205, 3024], true) => 'The query timed out or was cancelled. Use a narrow filter, fewer joins or a smaller LIMIT before retrying.',
+            in_array($state, ['42601', '42000'], true),
+            $state === 'HY000' && $driverCode === 1 => 'Check db_schema for exact names and simplify the SELECT syntax. '
+                .'If access is still refused, ask the operator to check SELECT permissions.',
+            default => 'The database query failed. Check db_schema and simplify the SELECT before retrying; '
+                .'ask the operator to investigate if it still fails.',
+        };
     }
 
     /**

@@ -444,6 +444,35 @@ class InstallCommand extends Command
     }
 
     /**
+     * Keep client examples aligned with the HTTP route; an empty path disables it.
+     * A domain replaces the app authority, retaining its port unless explicitly overridden.
+     */
+    private function httpEndpointUrl(): ?string
+    {
+        $path = trim((string) config('agent-mcp.route'), " /\t\n\r\0\x0B");
+
+        if ($path === '') {
+            return null;
+        }
+
+        $appUrl = rtrim((string) config('app.url'), '/');
+        $domain = config('agent-mcp.domain');
+
+        if ($domain !== null && $domain !== '') {
+            $scheme = parse_url($appUrl, PHP_URL_SCHEME);
+            $port = parse_url($appUrl, PHP_URL_PORT);
+            $domainPort = parse_url($scheme.'://'.$domain, PHP_URL_PORT);
+            $appUrl = $scheme.'://'.$domain;
+
+            if ($domainPort === null && $port !== null) {
+                $appUrl .= ':'.$port;
+            }
+        }
+
+        return $appUrl.'/'.$path;
+    }
+
+    /**
      * Print the ready-to-paste HTTP and stdio bridge client config blocks (mcp mode).
      *
      * The HTTP block uses Streamable HTTP with a Bearer key header. The stdio
@@ -452,9 +481,16 @@ class InstallCommand extends Command
      */
     private function printClientConfigBlocks(): void
     {
-        $appUrl = rtrim((string) config('app.url', 'https://your-app.test'), '/');
-        $route = ltrim((string) config('agent-mcp.route', 'agent-mcp'), '/');
-        $httpUrl = $appUrl.'/'.$route;
+        $httpUrl = $this->httpEndpointUrl();
+
+        if ($httpUrl === null) {
+            $this->warn('HTTP endpoint disabled: agent-mcp.route is empty.');
+            $this->line('The local server stdio transport is unaffected.');
+            $this->line('The stdio bridge requires an explicit remote AGENT_MCP_URL.');
+            $this->newLine();
+
+            return;
+        }
 
         $this->info('=== Client config (.mcp.json) ===');
         $this->newLine();
@@ -485,7 +521,7 @@ class InstallCommand extends Command
                         'agent-mcp:stdio',
                     ],
                     'env' => [
-                        'AGENT_MCP_URL' => 'https://your-remote-app.test/agent-mcp',
+                        'AGENT_MCP_URL' => $httpUrl,
                         'AGENT_MCP_KEY' => 'YOUR_KEY_HERE',
                     ],
                 ],
@@ -502,20 +538,23 @@ class InstallCommand extends Command
      */
     private function printClaudeMcpAddOneliner(): void
     {
-        $appUrl = rtrim((string) config('app.url', 'https://your-app.test'), '/');
-        $route = ltrim((string) config('agent-mcp.route', 'agent-mcp'), '/');
-        $httpUrl = $appUrl.'/'.$route;
+        $httpUrl = $this->httpEndpointUrl();
+
+        if ($httpUrl === null) {
+            return;
+        }
 
         $this->info('=== Register with Claude CLI ===');
         $this->newLine();
         $this->line('Laravel Boost does not auto-wire third-party MCP servers (laravel/boost#522).');
         $this->line('Register the endpoint manually with the Claude CLI:');
         $this->newLine();
-        $this->line('  claude mcp add --transport http '.$httpUrl.' --header "Authorization: Bearer YOUR_KEY_HERE"');
+        $this->line('  claude mcp add --transport http agent-mcp '.escapeshellarg($httpUrl)
+            .' --header "Authorization: Bearer YOUR_KEY_HERE"');
         $this->newLine();
         $this->line('Or for the stdio bridge:');
         $this->newLine();
-        $this->line('  claude mcp add --transport stdio php -- artisan agent-mcp:stdio');
+        $this->line('  claude mcp add --transport stdio agent-mcp -- php artisan agent-mcp:stdio');
         $this->newLine();
     }
 

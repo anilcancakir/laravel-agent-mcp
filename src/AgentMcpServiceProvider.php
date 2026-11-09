@@ -11,6 +11,7 @@ use Anilcancakir\LaravelAgentMcp\Server\AgentMcpServer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Spatie\LaravelPackageTools\Package;
@@ -147,9 +148,17 @@ class AgentMcpServiceProvider extends PackageServiceProvider
      */
     private function registerTransports(): void
     {
-        if (config('agent-mcp.transports.http')) {
-            Mcp::web(config('agent-mcp.route'), AgentMcpServer::class)
-                ->middleware(config('agent-mcp.middleware'));
+        $path = trim(config('agent-mcp.route'), " /\t\n\r\0\x0B");
+
+        if (config('agent-mcp.transports.http') && $path !== '') {
+            // Laravel matches the hostname without its port; client URLs retain the authority.
+            $domain = config('agent-mcp.domain');
+            $host = filled($domain) ? parse_url('http://'.$domain, PHP_URL_HOST) : null;
+
+            Route::domain($host)->group(function () use ($path): void {
+                Mcp::web($path, AgentMcpServer::class)
+                    ->middleware(config('agent-mcp.middleware'));
+            });
         }
 
         if (config('agent-mcp.transports.stdio')) {

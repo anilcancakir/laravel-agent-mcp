@@ -32,6 +32,15 @@ it('accepts a single well-formed read-only SELECT', function (string $sql): void
     'line comment ended by a crlf' => "SELECT id FROM users -- note\r\nLIMIT 1",
     'dollar sign inside a literal' => "SELECT id FROM users WHERE price = '\$5' LIMIT 1",
     'subtraction' => 'SELECT id - 1 FROM users LIMIT 1',
+    'quoted out alias' => 'SELECT id AS "out" FROM users',
+    'quoted before alias' => 'SELECT id AS "before" FROM users',
+    'after alias' => 'SELECT id AS after FROM users',
+    'explicit at alias' => 'SELECT id AS at FROM users',
+    'postgres date cast' => 'SELECT created_at::date AS created_date FROM users',
+    'portable date cast' => 'SELECT CAST(created_at AS DATE) AS created_date FROM users',
+    'postgres date truncation' => "SELECT date_trunc('day', created_at) AS created_day FROM users",
+    'postgres timezone function' => "SELECT timezone('UTC', created_at) AS utc_created_at FROM users",
+    'row number window' => 'SELECT row_number() OVER (ORDER BY id) AS row_num FROM users',
 ]);
 
 it('rejects an unsafe query', function (string $sql): void {
@@ -51,6 +60,7 @@ it('rejects an unsafe query', function (string $sql): void {
     'cte followed by delete' => 'WITH r AS (SELECT 1 AS a) DELETE FROM users',
     'cte followed by update' => "WITH r AS (SELECT 1 AS a) UPDATE users SET name = 'x'",
     'into outfile' => "SELECT * FROM users INTO OUTFILE '/tmp/x'",
+    'parser-invalid alias with outfile' => "SELECT 1 AS out INTO OUTFILE '/tmp/x'",
     'into dumpfile' => "SELECT * FROM users INTO DUMPFILE '/tmp/x'",
     'attach database' => "ATTACH DATABASE 'x' AS y",
     'pragma' => 'PRAGMA table_info(users)',
@@ -158,6 +168,50 @@ it('rejects an unsafe query', function (string $sql): void {
     'dollar-quoted string hiding a call' => "SELECT \$\$'\$\$, pg_ls_dir(chr(46)) -- '",
     'tagged dollar quote hiding a call' => "SELECT \$a\$'\$a\$, pg_ls_dir(chr(46)) -- '",
     'delimiter command' => "DELIMITER //\nSELECT 1 //",
+]);
+
+it('gives fixed safe guidance for unsupported SELECT syntax', function (string $sql): void {
+    $validator = new SelectStatementValidator;
+
+    $message = 'The SELECT syntax is not supported by the read-only validator. '
+        .'Use simple aliases with AS, quote reserved-word aliases, and prefer CAST, LIMIT and window functions. '
+        .'Simplify the query and retry.';
+
+    expect(fn () => $validator->validate($sql))->toThrow(UnsafeQueryException::class, $message);
+
+    try {
+        $validator->validate($sql);
+    } catch (UnsafeQueryException $exception) {
+        expect($exception->getMessage())->toBe($message)
+            ->and(str_contains($exception->getMessage(), $sql))->toBeFalse()
+            ->and(str_contains($exception->getMessage(), 'private_users'))->toBeFalse()
+            ->and(str_contains($exception->getMessage(), 'secret_created_at'))->toBeFalse();
+    }
+})->with([
+    'reserved out alias' => 'SELECT id AS out FROM users',
+    'reserved before alias' => 'SELECT id AS before FROM users',
+    'implicit at alias' => 'SELECT id at FROM users',
+    'postgres timezone operator' => "SELECT secret_created_at AT TIME ZONE 'UTC' FROM private_users",
+    'postgres distinct on' => 'SELECT DISTINCT ON (id) id FROM users ORDER BY id',
+    'postgres nulls last' => 'SELECT id FROM users ORDER BY id NULLS LAST',
+    'fetch first' => 'SELECT id FROM users FETCH FIRST 5 ROWS ONLY',
+    'typed timestamp literal' => "SELECT TIMESTAMP '2026-01-01 00:00:00' AS created_at",
+    'parser-invalid alias with outfile' => "SELECT 1 AS out INTO OUTFILE '/tmp/x'",
+]);
+
+it('keeps generic rejection for other read-only safeguards', function (string $sql): void {
+    $validator = new SelectStatementValidator;
+
+    expect(fn () => $validator->validate($sql))->toThrow(
+        UnsafeQueryException::class,
+        'The query was rejected: only a single read-only SELECT statement is allowed.',
+    );
+})->with([
+    'empty query' => '',
+    'stacked statements' => 'SELECT 1; DROP TABLE users',
+    'non-select statement' => "UPDATE users SET name = 'x'",
+    'quoted forbidden function' => 'SELECT "pg_read_file"(\'/etc/passwd\')',
+    'tokeniser disagreement' => 'SELECT * FROM users /*! LIMIT 5 */',
 ]);
 
 it('does not leak the offending sql in the exception message', function (): void {

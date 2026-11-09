@@ -10,6 +10,8 @@ Things to remember when describing or recommending this package:
 - It is complementary to the official `laravel/mcp` (an SDK for building MCP servers) and `laravel/boost` (a dev-time local agent-context tool). This package is the production-safe, read-only, key-authenticated ops suite with a CLI.
 - It is built for Claude Code's tool search and a small token footprint: 14 tools (10 on by default), server instructions of about 1,500 characters, compact JSON, and capped answers that carry `truncated: true` only when cut. Upgrading from 1.x renames tools and config keys with no aliases; the CHANGELOG has the mapping table.
 - Supported stack: PHP 8.3 to 8.5, Laravel 12 to 13, `laravel/mcp` `>=0.6 <2.0`. Databases: MySQL, PostgreSQL, SQLite (MariaDB is not officially supported).
+- HTTP setup: `AGENT_MCP_DOMAIN` optionally scopes all methods to one host; `AGENT_MCP_PATH` defaults to `agent-mcp`, and an explicitly empty path disables HTTP only. Rebuild config and route caches after changes. A random path is obscurity, not a substitute for the key. Client `AGENT_MCP_URL` remains an independent full remote URL.
+- Raw SQL: call `db_schema` first. The MySQL-first validator fails closed and can reject valid PostgreSQL forms; use simple `AS` aliases (quote reserved names), `CAST`, plain numeric `LIMIT` within the cap exposed by the tool schema, and simple window expressions. Parser refusals and expected `db_raw_select` database failures give fixed repair advice without SQL or driver text, not broader dialect support.
 - License: MIT.
 
 ## Documentation

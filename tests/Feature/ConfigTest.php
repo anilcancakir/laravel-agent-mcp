@@ -18,6 +18,35 @@ it('defaults route to agent-mcp', function (): void {
     expect(config('agent-mcp.route'))->toBe('agent-mcp');
 });
 
+it('defaults domain to null so the endpoint accepts any host', function (): void {
+    expect(config('agent-mcp'))->toHaveKey('domain');
+    expect(config('agent-mcp.domain'))->toBeNull();
+});
+
+it('reads the native endpoint settings from the environment', function (): void {
+    $environment = [
+        'AGENT_MCP_PATH' => 'private/7f9c2a',
+        'AGENT_MCP_DOMAIN' => 'agents.example.test',
+    ];
+    $previous = [];
+
+    foreach ($environment as $name => $value) {
+        $previous[$name] = getenv($name);
+        putenv($name.'='.$value);
+    }
+
+    try {
+        $configuration = require dirname(__DIR__, 2).'/config/agent-mcp.php';
+
+        expect($configuration['route'])->toBe('private/7f9c2a');
+        expect($configuration['domain'])->toBe('agents.example.test');
+    } finally {
+        foreach ($previous as $name => $value) {
+            putenv($value === false ? $name : $name.'='.$value);
+        }
+    }
+});
+
 it('ships KeyAuthMiddleware and throttle middleware by default', function (): void {
     $middleware = config('agent-mcp.middleware');
 

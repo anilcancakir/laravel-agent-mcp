@@ -4,6 +4,17 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- `AGENT_MCP_DOMAIN` scopes all HTTP methods to an optional host; `AGENT_MCP_PATH` sets the path (default `agent-mcp`). An explicitly empty path disables HTTP registration without changing the local server stdio transport. Rebuild config and route caches after changing either setting.
+
+### Fixed
+
+- Installer HTTP config, stdio bridge env and Claude registration use the configured domain/path consistently. Claude CLI commands include the `agent-mcp` server name and shell-quote the HTTP URL. An empty path prints a disabled notice instead of advertising the app root as an endpoint.
+- `db_raw_select` parser refusals give actionable, SQL-free repair guidance; expected database query failures return fixed schema, syntax, permission and timeout advice without driver text. The tool schema exposes the configured numeric row cap. The MySQL-first validator still rejects unsupported PostgreSQL syntax and fails closed on parser errors.
+
 ## 2.0.0 - 2026-11-09
 
 This is the 2.0.0 release: 25 tools become 14, every JSON answer is compact and capped, and tool and config names change. See [Upgrading to 2.0.0](#upgrading-to-200).
