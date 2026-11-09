@@ -33,7 +33,7 @@ use Laravel\Mcp\Server\Tool;
  * trace, even with app.debug=true.
  */
 #[Name('agent-mcp')]
-#[Version('2.0.0')]
+#[Version('2.1.0')]
 #[Instructions(<<<'MARKDOWN'
     Read-only inspection of this Laravel application: database, queue, cache, routes, app info and logs.
     Search for these tools when a task needs live data from the running app instead of a guess from the code.
