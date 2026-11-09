@@ -16,13 +16,19 @@ use Anilcancakir\LaravelAgentMcp\Tools\QueueStatusTool;
 use Anilcancakir\LaravelAgentMcp\Tools\ReadLogsTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RoutesTool;
 use Anilcancakir\LaravelAgentMcp\Tools\RunArtisanTool;
+use Illuminate\Routing\RouteCollection;
+use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Attributes\Instructions;
 use Laravel\Mcp\Server\Registrar;
 use Laravel\Mcp\Server\Transport\FakeTransporter;
 use Spatie\LaravelPackageTools\Package;
 
+use function Pest\Laravel\deleteJson;
+use function Pest\Laravel\getJson;
+use function Pest\Laravel\json;
 use function Pest\Laravel\postJson;
 use function Pest\Laravel\withHeaders;
+use function Pest\Laravel\withToken;
 
 // These tests prove the security-relevant wiring of the assembled package: the
 // /agent-mcp route is fail-closed behind KeyAuthMiddleware (401 with no key, 401 with
@@ -176,6 +182,121 @@ it('lists the enabled tools for a request carrying the correct Bearer key', func
         'routes',
         'app_info',
     ]);
+});
+
+/** Reboot transport registration without leaving the default HTTP routes mounted. */
+function registerEndpointForTest(?string $path, ?string $domain = null): void
+{
+    config([
+        'agent-mcp.route' => $path,
+        'agent-mcp.domain' => $domain,
+        'agent-mcp.key' => 'the-server-admin-key',
+    ]);
+
+    app('router')->setRoutes(new RouteCollection);
+    app()->instance(Registrar::class, new Registrar);
+    Mcp::clearResolvedInstance(Registrar::class);
+
+    $provider = new AgentMcpServiceProvider(app());
+    $provider->configurePackage(new Package);
+    $provider->packageBooted();
+}
+
+it('isolates every HTTP method to the configured domain', function (string $method): void {
+    registerEndpointForTest('private/7f9c2a', 'agents.example.test');
+
+    json($method, 'https://wrong.example.test/private/7f9c2a', toolsListPayload())
+        ->assertNotFound();
+    json($method, 'https://agents.example.test/agent-mcp', toolsListPayload())
+        ->assertNotFound();
+    json($method, 'https://agents.example.test/private/7f9c2a', toolsListPayload())
+        ->assertStatus($method === 'POST' ? 401 : 405);
+})->with([
+    'GET',
+    'DELETE',
+    'POST',
+]);
+
+it('normalises surrounding slashes and lists tools on literal custom paths', function (string $path): void {
+    registerEndpointForTest('/'.$path.'/', 'agents.example.test');
+
+    withToken('the-server-admin-key')
+        ->postJson('https://agents.example.test/'.$path, toolsListPayload())
+        ->assertOk()
+        ->assertJsonStructure([
+            'result' => [
+                'tools',
+            ],
+        ]);
+})->with([
+    'private/7f9c2a',
+    'x',
+]);
+
+it('keeps a custom path available on any host when no domain is configured', function (): void {
+    registerEndpointForTest('private/7f9c2a');
+
+    foreach (['first.example.test', 'second.example.test'] as $host) {
+        withToken('the-server-admin-key')
+            ->postJson('https://'.$host.'/private/7f9c2a', toolsListPayload())
+            ->assertOk();
+    }
+});
+
+it('skips HTTP for empty paths without disabling stdio', function (?string $path): void {
+    registerEndpointForTest($path);
+
+    expect(app('router')->getRoutes()->getRoutes())->toBe([]);
+    expect(app(Registrar::class)->getLocalServer('agent-mcp'))->not->toBeNull();
+
+    postJson('/agent-mcp', toolsListPayload())->assertNotFound();
+    postJson('/', toolsListPayload())->assertNotFound();
+})->with([
+    '',
+    '   ',
+    '///',
+    " / / \t ",
+    null,
+]);
+
+it('accepts a port in the configured domain', function (): void {
+    registerEndpointForTest('private/7f9c2a', 'agents.example.test:9443');
+
+    postJson('https://agents.example.test:9443/private/7f9c2a', toolsListPayload())->assertUnauthorized();
+    withToken('the-server-admin-key')
+        ->postJson('https://agents.example.test:9443/private/7f9c2a', toolsListPayload())
+        ->assertOk();
+    getJson('https://wrong.example.test:9443/private/7f9c2a')->assertNotFound();
+});
+
+it('preserves endpoint isolation and authentication after a route-cache roundtrip', function (): void {
+    registerEndpointForTest('private/7f9c2a', 'agents.example.test:9443');
+    $routes = new RouteCollection;
+
+    foreach (app('router')->getRoutes()->getRoutes() as $route) {
+        $route->prepareForSerialization();
+        $routes->add($route);
+    }
+
+    $cachePath = tempnam(sys_get_temp_dir(), 'agent-mcp-routes-');
+
+    try {
+        file_put_contents($cachePath, '<?php return '.var_export($routes->compile(), true).';');
+        app('router')->setCompiledRoutes(require $cachePath);
+
+        getJson('https://wrong.example.test/private/7f9c2a')->assertNotFound();
+        deleteJson('https://wrong.example.test/private/7f9c2a')->assertNotFound();
+        getJson('https://agents.example.test/private/7f9c2a')->assertStatus(405);
+        deleteJson('https://agents.example.test/private/7f9c2a')->assertStatus(405);
+        postJson('https://agents.example.test/private/7f9c2a', toolsListPayload())
+            ->assertUnauthorized();
+        withToken('the-server-admin-key')
+            ->postJson('https://agents.example.test/private/7f9c2a', toolsListPayload())
+            ->assertOk();
+        postJson('https://agents.example.test/agent-mcp', toolsListPayload())->assertNotFound();
+    } finally {
+        unlink($cachePath);
+    }
 });
 
 it('registers no MCP route when auto_register is false', function (): void {
