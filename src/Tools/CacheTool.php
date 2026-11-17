@@ -2,6 +2,7 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Tools;
 
+use Anilcancakir\LaravelAgentMcp\Support\OpcacheMemory;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
@@ -189,7 +190,7 @@ class CacheTool extends AbstractAgentTool
             ];
         }
 
-        $status = opcache_get_status(false);
+        $status = $this->opcacheStatus();
 
         if ($status === false) {
             return [
@@ -203,9 +204,20 @@ class CacheTool extends AbstractAgentTool
             'available' => true,
             'enabled' => $status['opcache_enabled'] ?? null,
             'note' => 'This reflects the current SAPI (often CLI); the FPM workers serving web traffic may differ.',
-            'memory_usage' => $status['memory_usage'] ?? null,
+            'memory_usage' => isset($status['memory_usage']) ? OpcacheMemory::sanitise($status['memory_usage']) : null,
             'statistics' => $status['opcache_statistics'] ?? null,
         ];
+    }
+
+    /**
+     * The runtime's opcache status, without the per-script list. A seam so a test can
+     * feed the impossible figures that a real opcache only produces on some hosts.
+     *
+     * @return array<string, mixed>|false
+     */
+    protected function opcacheStatus(): array|false
+    {
+        return opcache_get_status(false);
     }
 
     /**

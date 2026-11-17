@@ -3,6 +3,7 @@
 use Anilcancakir\LaravelAgentMcp\Tools\AppInfoTool;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Event;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -21,6 +22,35 @@ final class AppInfoStubServer extends Server
     protected array $tools = [
         AppInfoTool::class,
     ];
+}
+
+/**
+ * AppInfoTool whose opcache status is fixed, because the real one cannot be made to misreport.
+ */
+class AppInfoImpossibleOpcacheTool extends AppInfoTool
+{
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $memoryUsage = ['used_memory' => -70228448, 'free_memory' => 70228448, 'wasted_memory' => 0];
+
+    protected function opcacheStatus(): array|false
+    {
+        return [
+            'opcache_enabled' => true,
+            'cache_full' => false,
+            'memory_usage' => $this->memoryUsage,
+            'opcache_statistics' => ['num_cached_scripts' => 12, 'hits' => 3, 'misses' => 1],
+        ];
+    }
+}
+
+/**
+ * The same stub with memory figures a healthy host would report.
+ */
+final class AppInfoSaneOpcacheTool extends AppInfoImpossibleOpcacheTool
+{
+    protected array $memoryUsage = ['used_memory' => 1048576, 'free_memory' => 2097152, 'wasted_memory' => 0];
 }
 
 // Recognizable values that MUST NEVER appear in the output: the env section
@@ -97,6 +127,28 @@ it('defaults to the about section with all five parts', function (): void {
         ->assertSee('"opcache"')
         ->assertSee('"extensions"');
 });
+
+it('withholds an impossible opcache memory counter and flags the host', function (): void {
+    app()->bind(AppInfoTool::class, AppInfoImpossibleOpcacheTool::class);
+
+    $response = app(AppInfoTool::class)->handle(new Request(['parts' => ['opcache']]));
+    $payload = json_decode((string) $response->content(), associative: true, flags: JSON_THROW_ON_ERROR);
+
+    expect($payload['opcache']['used_memory_bytes'])->toBeNull()
+        ->and($payload['opcache']['free_memory_bytes'])->toBe(70228448)
+        ->and($payload['opcache']['memory_note'])->toBeString()
+        ->and($payload['opcache']['cached_scripts'])->toBe(12);
+})->skip(! function_exists('opcache_get_status'), 'The opcache extension is not loaded.');
+
+it('leaves out the memory note when opcache reports sane memory', function (): void {
+    app()->bind(AppInfoTool::class, AppInfoSaneOpcacheTool::class);
+
+    $response = app(AppInfoTool::class)->handle(new Request(['parts' => ['opcache']]));
+    $payload = json_decode((string) $response->content(), associative: true, flags: JSON_THROW_ON_ERROR);
+
+    expect($payload['opcache']['used_memory_bytes'])->toBe(1048576)
+        ->and($payload['opcache'])->not->toHaveKey('memory_note');
+})->skip(! function_exists('opcache_get_status'), 'The opcache extension is not loaded.');
 
 it('returns only the requested parts of the about section', function (): void {
     AppInfoStubServer::tool(AppInfoTool::class, ['section' => 'about', 'parts' => ['environment']])

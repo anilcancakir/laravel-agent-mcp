@@ -132,7 +132,7 @@ Validator refusals give fixed repair guidance without echoing SQL. Expected data
 
 | Tool | What it does | Default |
 |------|-------------|---------|
-| `queue_status` | Sections: `backlog` (default; pending job counts per connection and queue), `failed` (failed job summary or rows with job class, exception first line and `failed_at`; the payload is never emitted; takes `limit`), `horizon` (workload, metrics and supervisor state; `{available:false}` when Horizon is absent). | On |
+| `queue_status` | Sections: `backlog` (default; pending job counts per connection and queue, for the default connection plus the connections and queues Horizon works, or the connections in `agent-mcp.queue.connections`; `connection` may name any other), `failed` (failed job summary or rows with job class, exception first line and `failed_at`; the payload is never emitted; takes `limit`), `horizon` (workload, metrics and supervisor state; `{available:false}` when Horizon is absent). | On |
 
 ### Cache
 

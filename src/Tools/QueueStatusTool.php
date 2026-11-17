@@ -4,6 +4,7 @@ namespace Anilcancakir\LaravelAgentMcp\Tools;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -38,10 +39,10 @@ use Throwable;
 
     Usage:
     - `section` picks the view and defaults to backlog.
-    - backlog: pending job count per connection and queue; the database driver adds a strict_pending count of jobs that are unreserved and already available. The sync driver has no backlog and returns a note instead of a number.
+    - backlog: pending job count per queue for the default connection and the connections Horizon uses, including every queue its supervisors work; the database driver adds a strict_pending count of jobs that are unreserved and already available. The sync driver has no backlog and returns a note instead of a number.
     - failed: per-job detail (job class, exception first line, failed_at), newest first, capped by `limit` with total and truncated when cut. Set `summary` true for counts grouped by queue and connection instead. The raw job payload is never returned.
     - horizon: workload, metrics and supervisor state, or {available:false} when Horizon is not installed; treat that as not deployed, not an error.
-    - `connection` and `queue` scope the backlog and failed sections.
+    - `connection` and `queue` scope the backlog and failed sections; `connection` may name any configured connection.
     TEXT)]
 #[IsReadOnly]
 class QueueStatusTool extends AbstractAgentTool
@@ -119,7 +120,11 @@ class QueueStatusTool extends AbstractAgentTool
     }
 
     /**
-     * Pending job counts for every configured connection, or just the requested one.
+     * Pending job counts for the connections in scope, or just the requested one.
+     *
+     * An explicit connection argument may name any configured connection. Without one the
+     * scope is agent-mcp.queue.connections, else the default connection plus the ones
+     * Horizon works, so the unused default-skeleton connections (beanstalkd, sqs) stay out.
      *
      * @return array<string, mixed>
      */
@@ -128,31 +133,111 @@ class QueueStatusTool extends AbstractAgentTool
         $connectionFilter = $request->get('connection');
         $queueFilter = $request->get('queue');
 
-        $allConnections = (array) config('queue.connections', []);
+        $horizonQueues = $this->horizonQueuesByConnection();
 
-        if ($connectionFilter !== null && $connectionFilter !== '') {
-            $allConnections = array_filter(
-                $allConnections,
-                fn (string $key): bool => $key === $connectionFilter,
-                ARRAY_FILTER_USE_KEY,
-            );
-        }
+        $inScope = $connectionFilter !== null && $connectionFilter !== ''
+            ? [(string) $connectionFilter]
+            : $this->defaultScope($horizonQueues);
+
+        $connections = array_intersect_key((array) config('queue.connections', []), array_flip($inScope));
 
         $results = [];
 
-        foreach ($allConnections as $name => $connectionConfig) {
+        foreach ($connections as $name => $connectionConfig) {
             $driver = $connectionConfig['driver'] ?? 'unknown';
 
-            $results[$name] = $this->inspectConnection((string) $name, (string) $driver, $connectionConfig, $queueFilter);
+            $results[$name] = $this->inspectConnection(
+                (string) $name,
+                (string) $driver,
+                $connectionConfig,
+                $queueFilter,
+                $horizonQueues[$name] ?? [],
+            );
         }
 
         return $results;
     }
 
     /**
+     * Connection names the backlog answers for when the caller names none.
+     *
+     * @param  array<string, array<int, string>>  $horizonQueues
+     * @return array<int, string>
+     */
+    private function defaultScope(array $horizonQueues): array
+    {
+        $configured = config('agent-mcp.queue.connections');
+
+        if (is_array($configured)) {
+            return array_map('strval', array_values($configured));
+        }
+
+        return array_values(array_unique([
+            (string) config('queue.default'),
+            ...array_map('strval', array_keys($horizonQueues)),
+        ]));
+    }
+
+    /**
+     * Queue names per connection that Horizon supervisors work, read from config so no
+     * Horizon class is touched. A supervisor inherits any key it lacks from the same-named
+     * entry in horizon.defaults, and a supervisor with no connection runs on redis. Empty
+     * when the application has no horizon config.
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function horizonQueuesByConnection(): array
+    {
+        $horizon = config('horizon');
+
+        if (! is_array($horizon)) {
+            return [];
+        }
+
+        $defaults = (array) ($horizon['defaults'] ?? []);
+        $byConnection = [];
+
+        foreach ((array) ($horizon['environments'] ?? []) as $supervisors) {
+            foreach ((array) $supervisors as $supervisor => $options) {
+                $settings = (array) $options + (array) ($defaults[$supervisor] ?? []);
+                $connection = (string) ($settings['connection'] ?? 'redis');
+
+                $byConnection[$connection] = [
+                    ...($byConnection[$connection] ?? []),
+                    ...$this->splitQueueNames($settings['queue'] ?? []),
+                ];
+            }
+        }
+
+        return array_map(fn (array $queues): array => array_values(array_unique($queues)), $byConnection);
+    }
+
+    /**
+     * A supervisor's `queue` option as a flat list: Horizon accepts a string, a
+     * comma-separated string or an array of either.
+     *
+     * @return array<int, string>
+     */
+    private function splitQueueNames(mixed $queue): array
+    {
+        $names = [];
+
+        foreach (Arr::flatten((array) $queue) as $entry) {
+            foreach (explode(',', (string) $entry) as $name) {
+                if (trim($name) !== '') {
+                    $names[] = trim($name);
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * Inspect a single queue connection and return its backlog data.
      *
      * @param  array<string, mixed>  $connectionConfig
+     * @param  array<int, string>  $horizonQueues  Queue names Horizon works on this connection.
      * @return array<string, mixed>
      */
     private function inspectConnection(
@@ -160,6 +245,7 @@ class QueueStatusTool extends AbstractAgentTool
         string $driver,
         array $connectionConfig,
         mixed $queueFilter,
+        array $horizonQueues,
     ): array {
         // Sync driver has no persistent queue: report not_applicable rather than zero.
         if ($driver === 'sync') {
@@ -168,7 +254,7 @@ class QueueStatusTool extends AbstractAgentTool
 
         $queueDetails = [];
 
-        foreach ($this->resolveQueueNames($driver, $connectionConfig, $queueFilter) as $queueName) {
+        foreach ($this->resolveQueueNames($driver, $connectionConfig, $queueFilter, $horizonQueues) as $queueName) {
             $queueDetails[$queueName] = $this->inspectQueue($name, $driver, $connectionConfig, $queueName);
         }
 
@@ -182,13 +268,19 @@ class QueueStatusTool extends AbstractAgentTool
      * Enumerate queue names for the given driver.
      *
      * Database: read distinct queue names from the jobs table.
-     * Other drivers: fall back to the configured default queue name.
+     * Other drivers: the connection's own queue name plus the ones Horizon works on it,
+     * because a Horizon supervisor serves queues the connection config never names.
      *
      * @param  array<string, mixed>  $connectionConfig
+     * @param  array<int, string>  $horizonQueues
      * @return array<int, string>
      */
-    private function resolveQueueNames(string $driver, array $connectionConfig, mixed $queueFilter): array
-    {
+    private function resolveQueueNames(
+        string $driver,
+        array $connectionConfig,
+        mixed $queueFilter,
+        array $horizonQueues,
+    ): array {
         if ($queueFilter !== null && $queueFilter !== '') {
             return [(string) $queueFilter];
         }
@@ -212,7 +304,7 @@ class QueueStatusTool extends AbstractAgentTool
             }
         }
 
-        return [(string) ($connectionConfig['queue'] ?? 'default')];
+        return array_values(array_unique([(string) ($connectionConfig['queue'] ?? 'default'), ...$horizonQueues]));
     }
 
     /**

@@ -1,7 +1,10 @@
 <?php
 
 use Anilcancakir\LaravelAgentMcp\Tools\QueueStatusTool;
+use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Queue\Connectors\ConnectorInterface;
+use Illuminate\Queue\NullQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Mcp\Request;
@@ -56,6 +59,53 @@ function queueStatusCall(array $arguments): array
     expect($response->isError())->toBeFalse();
 
     return json_decode((string) $response->content(), associative: true, flags: JSON_THROW_ON_ERROR);
+}
+
+/**
+ * Register a `fake` queue driver whose size is the queue name length and a `broken` driver
+ * that throws like SQS without credentials, then configure one connection per driver.
+ */
+function queueStatusFakeConnections(): void
+{
+    app('queue')->extend('fake', fn (): ConnectorInterface => new class implements ConnectorInterface
+    {
+        /**
+         * @param  array<string, mixed>  $config
+         */
+        public function connect(array $config): Queue
+        {
+            return new class extends NullQueue
+            {
+                public function size($queue = null): int
+                {
+                    return strlen((string) $queue);
+                }
+            };
+        }
+    });
+
+    app('queue')->extend('broken', function (): never {
+        throw new RuntimeException('Unable to resolve credentials.');
+    });
+
+    config()->set('queue.connections.redis', ['driver' => 'fake', 'queue' => 'default']);
+    config()->set('queue.connections.sqs', ['driver' => 'broken', 'queue' => 'default']);
+}
+
+/**
+ * Horizon config in the shape of a real application: shared defaults plus per-environment supervisors.
+ */
+function queueStatusHorizonConfig(): void
+{
+    config()->set('horizon.defaults', [
+        'supervisor-1' => ['connection' => 'redis', 'queue' => ['default']],
+    ]);
+    config()->set('horizon.environments', [
+        'production' => [
+            'supervisor-1' => ['queue' => ['catalogue', 'artwork']],
+            'supervisor-2' => ['queue' => ' crawl, artwork ,, default'],
+        ],
+    ]);
 }
 
 beforeEach(function (): void {
@@ -158,6 +208,8 @@ it('keeps the description within the 1,500 character budget', function (): void 
 // --- section: backlog (default) ---
 
 it('reports the backlog per connection and queue when no section is given', function (): void {
+    config()->set('queue.default', 'database');
+
     $payload = queueStatusCall([]);
 
     expect($payload['database']['driver'])->toBe('database')
@@ -175,6 +227,68 @@ it('scopes the backlog to a single connection', function (): void {
     $payload = queueStatusCall(['section' => 'backlog', 'connection' => 'database']);
 
     expect(array_keys($payload))->toBe(['database']);
+});
+
+it('leaves unused connections out of the default backlog when Horizon is not configured', function (): void {
+    queueStatusFakeConnections();
+    config()->set('queue.default', 'redis');
+
+    $payload = queueStatusCall([]);
+
+    expect(array_keys($payload))->toBe(['redis'])
+        ->and(array_keys($payload['redis']['queues']))->toBe(['default']);
+});
+
+it('adds the connections and queues Horizon supervisors use to the default backlog', function (): void {
+    queueStatusFakeConnections();
+    queueStatusHorizonConfig();
+    config()->set('queue.default', 'database');
+
+    $payload = queueStatusCall([]);
+
+    expect(array_keys($payload))->toBe(['database', 'redis'])
+        ->and(array_keys($payload['redis']['queues']))->toBe(['default', 'catalogue', 'artwork', 'crawl'])
+        ->and($payload['redis']['queues']['catalogue']['size'])->toBe(9);
+});
+
+it('does not enumerate Horizon queues for a connection no supervisor uses', function (): void {
+    queueStatusFakeConnections();
+    queueStatusHorizonConfig();
+    config()->set('queue.default', 'database');
+
+    $payload = queueStatusCall(['connection' => 'database']);
+
+    expect(array_keys($payload['database']['queues']))->toBe(['default']);
+});
+
+it('answers exactly the connections named by agent-mcp.queue.connections', function (): void {
+    queueStatusFakeConnections();
+    queueStatusHorizonConfig();
+    config()->set('queue.default', 'database');
+    config()->set('agent-mcp.queue.connections', ['sync', 'redis']);
+
+    $payload = queueStatusCall([]);
+
+    expect(array_keys($payload))->toBe(['sync', 'redis']);
+});
+
+it('lets an explicit connection argument name any configured connection', function (): void {
+    queueStatusFakeConnections();
+    config()->set('agent-mcp.queue.connections', ['database']);
+
+    $payload = queueStatusCall(['connection' => 'sqs']);
+
+    expect(array_keys($payload))->toBe(['sqs'])
+        ->and($payload['sqs']['queues']['default']['size'])->toBe(['error' => 'Unable to resolve credentials.']);
+});
+
+it('lets an explicit queue argument bypass Horizon queue enumeration', function (): void {
+    queueStatusFakeConnections();
+    queueStatusHorizonConfig();
+
+    $payload = queueStatusCall(['connection' => 'redis', 'queue' => 'only']);
+
+    expect(array_keys($payload['redis']['queues']))->toBe(['only']);
 });
 
 // --- section: failed ---
