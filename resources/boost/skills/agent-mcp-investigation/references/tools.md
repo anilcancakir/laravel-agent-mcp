@@ -66,7 +66,7 @@ One artisan command from an exact operator allowlist, the only tool that execute
 
 Queue health. ON.
 - `section`: `backlog` (default), `failed`, `horizon`. `connection` and `queue` scope backlog and failed.
-- `backlog`: pending count per connection and queue; the database driver adds `strict_pending`, the sync driver returns a not-applicable note.
+- `backlog`: pending count per queue for the default connection and the connections Horizon uses (or the ones in `agent-mcp.queue.connections`), including every queue its supervisors work; `connection` may name any other configured connection. The database driver adds `strict_pending`, the sync driver returns a not-applicable note.
 - `failed`: newest first, `{id, uuid, connection, queue, job_class, max_tries, timeout, exception_summary, failed_at}`, never the raw payload. `limit` defaults to 25 (at most 100) and the result carries `total` and `truncated`. `summary: true` returns counts per connection and queue instead.
 - `horizon`: workload, jobs, metrics and supervisors, or `{available:false}` when Horizon is not installed.
 

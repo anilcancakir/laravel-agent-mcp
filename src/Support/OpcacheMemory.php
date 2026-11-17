@@ -5,9 +5,9 @@ namespace Anilcancakir\LaravelAgentMcp\Support;
 /**
  * Sanitiser for the `memory_usage` block of opcache_get_status().
  *
- * Some hosts report impossible figures there: a production FPM pool answered a
- * negative used_memory with the same number positive as free_memory, which is a
- * counter overflow inside opcache, not a measurement. An agent that reads such a
+ * Some hosts report impossible figures there: a production FrankenPHP host answered a
+ * negative used_memory with the same number positive as free_memory, which is not a
+ * measurement (the cause was not traced). An agent that reads such a
  * number as fact draws wrong conclusions about cache pressure, so every counter that
  * is not a non-negative int is withheld as null and the block carries one note that
  * says the other figures cannot be trusted either.
