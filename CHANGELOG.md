@@ -4,6 +4,18 @@ All notable changes to `laravel-agent-mcp` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.2.0 - Unreleased
+
+### Added
+
+- `agent-mcp.queue.connections` sets which connections the `queue_status` backlog answers for when the call names none. `null` (the default) means the connection named by `queue.default` plus every connection a Laravel Horizon supervisor uses, read from `horizon.defaults` and `horizon.environments` (`redis` when a supervisor sets no connection); an array of names means exactly those. A `connection` argument still wins and may name any configured connection.
+- The backlog of a non-database connection lists the queues Horizon supervisors work on it (a string, a comma-separated string or an array in the supervisor's `queue` option) next to the connection's own `queue`.
+
+### Fixed
+
+- `opcache` memory in `app_info` and `cache`: a `used_memory`, `free_memory` or `wasted_memory` that is not a non-negative integer (a host reported a negative `used_memory` with the same number positive as `free_memory`) is returned as `null`, with a note that the other figures cannot be trusted either.
+- The default `queue_status` backlog no longer walks every connection in `queue.connections`, so unused connections such as `beanstalkd` without Pheanstalk or `sqs` without credentials stop filling the answer with errors.
+
 ## 2.1.0 - 2026-11-09
 
 ### Added

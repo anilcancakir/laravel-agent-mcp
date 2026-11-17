@@ -4,6 +4,7 @@ use Anilcancakir\LaravelAgentMcp\Tools\CacheTool;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\McpServiceProvider;
 use Laravel\Mcp\Server\Tool;
@@ -22,6 +23,34 @@ final class CacheStubServer extends Server
     protected array $tools = [
         CacheTool::class,
     ];
+}
+
+/**
+ * CacheTool whose opcache status is fixed, because the real one cannot be made to misreport.
+ */
+class CacheImpossibleOpcacheTool extends CacheTool
+{
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $memoryUsage = ['used_memory' => -70228448, 'free_memory' => 70228448, 'wasted_memory' => 0];
+
+    protected function opcacheStatus(): array|false
+    {
+        return [
+            'opcache_enabled' => true,
+            'memory_usage' => $this->memoryUsage,
+            'opcache_statistics' => ['num_cached_scripts' => 12, 'hits' => 3, 'misses' => 1],
+        ];
+    }
+}
+
+/**
+ * The same stub with memory figures a healthy host would report.
+ */
+final class CacheSaneOpcacheTool extends CacheImpossibleOpcacheTool
+{
+    protected array $memoryUsage = ['used_memory' => 1048576, 'free_memory' => 2097152, 'wasted_memory' => 0];
 }
 
 // A value placed in the cache that MUST NOT leak when value reads are disabled.
@@ -109,6 +138,31 @@ it('reports the framework optimization state and an opcache section', function (
         ->assertSee('events_cached')
         ->assertSee('"opcache"');
 });
+
+it('withholds an impossible opcache memory counter and flags the host', function (): void {
+    app()->bind(CacheTool::class, CacheImpossibleOpcacheTool::class);
+
+    $response = app(CacheTool::class)->handle(new Request([]));
+    $payload = json_decode((string) $response->content(), associative: true, flags: JSON_THROW_ON_ERROR);
+
+    expect($payload['opcache']['memory_usage']['used_memory'])->toBeNull()
+        ->and($payload['opcache']['memory_usage']['free_memory'])->toBe(70228448)
+        ->and($payload['opcache']['memory_usage']['note'])->toBeString()
+        ->and($payload['opcache']['statistics']['hits'])->toBe(3);
+})->skip(! function_exists('opcache_get_status'), 'The opcache extension is not loaded.');
+
+it('passes sane opcache memory through without a note', function (): void {
+    app()->bind(CacheTool::class, CacheSaneOpcacheTool::class);
+
+    $response = app(CacheTool::class)->handle(new Request([]));
+    $payload = json_decode((string) $response->content(), associative: true, flags: JSON_THROW_ON_ERROR);
+
+    expect($payload['opcache']['memory_usage'])->toBe([
+        'used_memory' => 1048576,
+        'free_memory' => 2097152,
+        'wasted_memory' => 0,
+    ]);
+})->skip(! function_exists('opcache_get_status'), 'The opcache extension is not loaded.');
 
 it('emits compact JSON without pretty printing', function (): void {
     CacheStubServer::tool(CacheTool::class, [])

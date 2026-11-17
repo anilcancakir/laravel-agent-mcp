@@ -226,6 +226,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Queue backlog scope
+    |--------------------------------------------------------------------------
+    |
+    | connections: the queue connections the queue_status backlog answers for
+    | when the caller names none. null (default) means the connection named by
+    | queue.default plus every connection a Laravel Horizon supervisor uses, so
+    | unused default-skeleton connections (beanstalkd, sqs) stay out of the
+    | answer. An array of connection names means exactly those. A `connection`
+    | argument on the call always wins and may name any configured connection.
+    |
+    */
+
+    'queue' => [
+        'connections' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Config inspection access control
     |--------------------------------------------------------------------------
     |

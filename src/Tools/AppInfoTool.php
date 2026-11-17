@@ -2,6 +2,7 @@
 
 namespace Anilcancakir\LaravelAgentMcp\Tools;
 
+use Anilcancakir\LaravelAgentMcp\Support\OpcacheMemory;
 use Closure;
 use DateTimeZone;
 use Illuminate\Console\Scheduling\CallbackEvent;
@@ -209,22 +210,41 @@ class AppInfoTool extends AbstractAgentTool
             return ['available' => false, 'reason' => 'opcache extension not loaded'];
         }
 
-        $status = opcache_get_status(false);
+        $status = $this->opcacheStatus();
 
         if ($status === false) {
             return ['available' => false, 'reason' => 'opcache disabled or not running'];
         }
 
-        return [
+        $memory = OpcacheMemory::sanitise($status['memory_usage'] ?? []);
+
+        $part = [
             'available' => true,
             'enabled' => $status['opcache_enabled'] ?? false,
             'cache_full' => $status['cache_full'] ?? false,
-            'used_memory_bytes' => $status['memory_usage']['used_memory'] ?? null,
-            'free_memory_bytes' => $status['memory_usage']['free_memory'] ?? null,
+            'used_memory_bytes' => $memory['used_memory'] ?? null,
+            'free_memory_bytes' => $memory['free_memory'] ?? null,
             'cached_scripts' => $status['opcache_statistics']['num_cached_scripts'] ?? null,
             'hits' => $status['opcache_statistics']['hits'] ?? null,
             'misses' => $status['opcache_statistics']['misses'] ?? null,
         ];
+
+        if (isset($memory['note'])) {
+            $part['memory_note'] = $memory['note'];
+        }
+
+        return $part;
+    }
+
+    /**
+     * The runtime's opcache status, without the per-script list. A seam so a test can
+     * feed the impossible figures that a real opcache only produces on some hosts.
+     *
+     * @return array<string, mixed>|false
+     */
+    protected function opcacheStatus(): array|false
+    {
+        return opcache_get_status(false);
     }
 
     /**
